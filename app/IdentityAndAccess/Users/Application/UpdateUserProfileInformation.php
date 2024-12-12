@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Actions\Fortify;
+namespace App\IdentityAndAccess\Users\Application;
 
-use App\Models\User;
+use App\IdentityAndAccess\Users\Domain\User;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;

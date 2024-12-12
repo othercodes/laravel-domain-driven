@@ -2,11 +2,11 @@
 
 namespace App\IdentityAndAccess;
 
-use App\Actions\Fortify\CreateNewUser;
-use App\Actions\Fortify\ResetUserPassword;
-use App\Actions\Fortify\UpdateUserPassword;
-use App\Actions\Fortify\UpdateUserProfileInformation;
-use App\Actions\Jetstream\DeleteUser;
+use App\IdentityAndAccess\Users\Application\CreateNewUser;
+use App\IdentityAndAccess\Users\Application\ResetUserPassword;
+use App\IdentityAndAccess\Users\Application\UpdateUserPassword;
+use App\IdentityAndAccess\Users\Application\UpdateUserProfileInformation;
+use App\IdentityAndAccess\Users\Application\DeleteUser;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;

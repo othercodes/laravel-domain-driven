@@ -2,17 +2,40 @@
 
 namespace App\IdentityAndAccess\Users\Application;
 
-use App\IdentityAndAccess\Users\Domain\User;
-use Laravel\Jetstream\Contracts\DeletesUsers;
+use App\IdentityAndAccess\Users\Domain\Contracts\UserRepository;
+use App\IdentityAndAccess\Users\Domain\Exceptions\UserNotFound;
+use App\Shared\Domain\Contracts\ServiceBus\EventBus;
 
-class DeleteUser implements DeletesUsers
+/**
+ * Class DeleteUser
+ *
+ * @author Unay Santisteban <usantisteban@othercode.io>
+ */
+final readonly class DeleteUser
 {
-    /**
-     * Delete the given user.
-     */
-    public function delete(User $user): void
+    private UserRepository $repository;
+
+    private EventBus $eventBus;
+
+    private FindUser $finder;
+
+    public function __construct(UserRepository $repository, EventBus $eventBus)
     {
-        $user->deleteProfilePhoto();
-        $user->delete();
+        $this->repository = $repository;
+        $this->eventBus = $eventBus;
+        $this->finder = new FindUser($this->repository);
+    }
+
+    public function delete(string $id): void
+    {
+        try {
+            $user = $this->finder->byId($id);
+        } catch (UserNotFound) {
+            return;
+        }
+
+        $this->repository->delete($user->toBeDeleted());
+
+        $user->publishDomainEvents($this->eventBus);
     }
 }

@@ -2,20 +2,22 @@
 
 namespace App\IdentityAndAccess;
 
-use App\IdentityAndAccess\Users\Application\CreateNewUser;
+use App\IdentityAndAccess\Users\Application\CreateUser;
+use App\IdentityAndAccess\Users\Application\EventHandlers\SendUserEmailVerification;
 use App\IdentityAndAccess\Users\Application\ResetUserPassword;
 use App\IdentityAndAccess\Users\Application\UpdateUserPassword;
 use App\IdentityAndAccess\Users\Application\UpdateUserProfileInformation;
-use App\IdentityAndAccess\Users\Application\DeleteUser;
+use App\IdentityAndAccess\Users\Domain\Contracts\UserRepository;
+use App\IdentityAndAccess\Users\Domain\Events\UserEmailUpdated;
+use App\IdentityAndAccess\Users\Infrastructure\Persistence\EloquentUserRepository;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
+use Inertia\Inertia;
 use Laravel\Fortify\Fortify;
-use Laravel\Jetstream\Jetstream;
 
 /**
  * Class IdentityAndAccessServiceProvider
@@ -24,9 +26,13 @@ use Laravel\Jetstream\Jetstream;
  */
 class IdentityAndAccessServiceProvider extends ServiceProvider
 {
-    public array $bindings = [];
+    public array $bindings = [
+        UserRepository::class => EloquentUserRepository::class,
+    ];
 
-    public array $events = [];
+    public array $events = [
+        UserEmailUpdated::class => SendUserEmailVerification::class,
+    ];
 
     private array $commands = [];
 
@@ -56,23 +62,37 @@ class IdentityAndAccessServiceProvider extends ServiceProvider
 
     private function bootFortify(): void
     {
-        Fortify::createUsersUsing(CreateNewUser::class);
+        // Configure the view prefix.
+        Fortify::viewPrefix('auth.');
+
+        // Configure the application user cases.
+        Fortify::createUsersUsing(CreateUser::class);
         Fortify::updateUserProfileInformationUsing(UpdateUserProfileInformation::class);
         Fortify::updateUserPasswordsUsing(UpdateUserPassword::class);
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
 
-        RateLimiter::for('login', function (Request $request) {
-            $throttleKey = Str::transliterate(Str::lower($request->input(Fortify::username())).'|'.$request->ip());
+        // Configure the routes.
+        Fortify::loginView(fn () => Inertia::render('Auth/Login', [
+            'status' => session('status'),
+        ]));
+        Fortify::registerView(fn () => Inertia::render('Auth/Register'));
+        Fortify::requestPasswordResetLinkView(fn () => Inertia::render('Auth/ForgotPassword', [
+            'status' => session('status'),
+        ]));
+        Fortify::resetPasswordView(fn (Request $request) => Inertia::render('Auth/ResetPassword', [
+            'email' => $request->input('email'),
+            'token' => $request->route('token'),
+        ]));
+        Fortify::verifyEmailView(fn () => Inertia::render('Auth/VerifyEmail', [
+            'status' => session('status'),
+        ]));
+        Fortify::twoFactorChallengeView(fn () => Inertia::render('Auth/TwoFactorChallenge'));
+        Fortify::confirmPasswordView(fn () => Inertia::render('Auth/ConfirmPassword'));
 
-            return Limit::perMinute(5)->by($throttleKey);
-        });
-
-        RateLimiter::for('two-factor', function (Request $request) {
-            return Limit::perMinute(5)->by($request->session()->get('login.id'));
-        });
-
-        Jetstream::deleteUsersUsing(DeleteUser::class);
-
-        Vite::prefetch(concurrency: 3);
+        // Rate limiter for authentication view
+        RateLimiter::for('login', fn (Request $request) => Limit::perMinute(5)
+            ->by(Str::transliterate(Str::lower($request->input(Fortify::username())).'|'.$request->ip())));
+        RateLimiter::for('two-factor', fn (Request $request) => Limit::perMinute(5)
+            ->by($request->session()->get('login.id')));
     }
 }

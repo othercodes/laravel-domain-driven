@@ -2,16 +2,35 @@
 
 namespace App\IdentityAndAccess\Users\Domain;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\IdentityAndAccess\Users\Domain\Events\UserDeleted;
+use App\IdentityAndAccess\Users\Domain\Events\UserEmailUpdated;
+use App\IdentityAndAccess\Users\Domain\Events\UserNameUpdated;
+use App\IdentityAndAccess\Users\Infrastructure\Persistence\UserFactory;
+use App\Shared\Domain\HasDomainEvents;
+use App\Shared\Domain\HasProfilePhoto;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Hash;
 use Laravel\Fortify\TwoFactorAuthenticatable;
-use Laravel\Jetstream\HasProfilePhoto;
 
-class User extends Authenticatable
+/**
+ * Class User
+ *
+ * @property string $id
+ * @property string $name
+ * @property string $email
+ * @property string|null $profile_photo_path
+ * @property string $profile_photo_url
+ *
+ * @method static UserFactory factory()
+ *
+ * @author Unay Santisteban <usantisteban@othercode.io>
+ */
+class User extends Authenticatable implements MustVerifyEmail
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
+    use HasDomainEvents;
     use HasFactory;
     use HasProfilePhoto;
     use Notifiable;
@@ -60,5 +79,54 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    protected static function newFactory(): UserFactory
+    {
+        return UserFactory::new();
+    }
+
+    public function updateName(string $name): self
+    {
+        if ($name !== $this->name) {
+            $this->forceFill([
+                'name' => $name,
+            ]);
+
+            $this->registerDomainEvent(new UserNameUpdated($this));
+        }
+
+        return $this;
+    }
+
+    public function updateEmail(string $email): self
+    {
+        if ($email !== $this->email) {
+            $this->forceFill([
+                'email' => $email,
+                'email_verified_at' => null,
+            ]);
+
+            $this->registerDomainEvent(new UserEmailUpdated($this));
+        }
+
+        return $this;
+    }
+
+    public function updatePassword(string $password): self
+    {
+        $this->forceFill([
+            'password' => Hash::make($password),
+            'password_user_defined' => true,
+        ]);
+
+        return $this;
+    }
+
+    public function toBeDeleted(): self
+    {
+        $this->registerDomainEvent(new UserDeleted($this->id));
+
+        return $this;
     }
 }

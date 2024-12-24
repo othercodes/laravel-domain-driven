@@ -39,8 +39,8 @@ Using **Laravel Domain Driven** helps you build clean, flexible, and long-lastin
 
 ## ✨ Features
 
-**Laravel Domain Driven** includes the core features provided by **Laravel Jetstream**, but organized using *
-*Domain-Driven Design (DDD)** and **Hexagonal Architecture**. Key features include:
+**Laravel Domain Driven** includes the core features provided by **Laravel Jetstream**, but organized using 
+**Domain-Driven Design (DDD)** and **Hexagonal Architecture**. Key features include:
 
 - **Authentication**: User registration, login, password reset, email verification, and more, powered by **Laravel
   Fortify**.

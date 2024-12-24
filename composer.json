@@ -1,8 +1,8 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "othercode/laravel-domain-driven",
+    "name": "usantisteban/laravel-domain-driven",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "Laravel domain-driven development starter template.",
     "keywords": [
         "laravel",
         "framework",

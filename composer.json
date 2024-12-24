@@ -6,7 +6,9 @@
     "keywords": [
         "laravel",
         "framework",
-        "domain-driven"
+        "domain-driven",
+        "hexagonal-architecture",
+        "ddd"
     ],
     "license": "MIT",
     "require": {

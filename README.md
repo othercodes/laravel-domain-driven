@@ -1,66 +1,208 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Laravel Domain Driven
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+<a href="https://laravel.com/docs/11.x"><img src="https://img.shields.io/badge/Laravel-11-FF2D20.svg?style=flat&logo=laravel" alt="Laravel 11"/></a>
+<a href="https://www.php.net/releases/8.2/en.php"><img src="https://img.shields.io/badge/PHP-8.2-777BB4.svg?style=flat&logo=php" alt="PHP 8.2"/></a>
+<a href="https://github.com/othercodes/laravel-domain-driven/actions/workflows/test.yml"><img src="https://github.com/othercodes/laravel-domain-driven/actions/workflows/test.yml/badge.svg" alt="Test"/></a>
 
-## About Laravel
+Welcome to Laravel Domain Driven! This is a Laravel starter designed to help you build applications using Hexagonal
+Architecture and Domain-Driven Design (DDD).
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+With this starter, your project is organized into clear layers, keeping your core business logic separate from other
+parts of your application. This makes your code easier to maintain and adapt over time. By using DDD, you can model your
+business problems more clearly and build software that is easy to change as your needs evolve.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+Whether you're starting a new project or improving an existing one, Laravel Domain Driven gives you a strong foundation
+for building flexible, high-quality applications.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## 🤔 Why use Laravel Domain Driven?
 
-## Learning Laravel
+**Laravel Domain Driven** brings together the power of **Laravel**, **Domain-Driven Design (DDD)**, and **Hexagonal
+Architecture**, offering key benefits:
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+- **Clear and Organized Code**: DDD and Hexagonal Architecture help keep your business logic separate from other parts
+  of the app, making your code easier to understand and manage.
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+- **Easy to Scale and Update**: This structure allows your application to grow and change over time without needing
+  major rewrites.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- **Well-Structured Application**: By combining Laravel’s features with DDD, your project becomes more organized, making
+  it easier to work with.
 
-## Laravel Sponsors
+- **Easier to Test and Maintain**: Hexagonal Architecture focuses on clean design, making it simpler to test and
+  maintain your code.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+- **The Power of Laravel**: Laravel provides a modern and elegant framework with built-in tools for routing,
+  authentication, database management, and more, helping you develop quickly and efficiently while maintaining
+  high-quality code.
 
-### Premium Partners
+Using **Laravel Domain Driven** helps you build clean, flexible, and long-lasting applications.
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+## ✨ Features
 
-## Contributing
+**Laravel Domain Driven** includes the core features provided by **Laravel Jetstream**, but organized using *
+*Domain-Driven Design (DDD)** and **Hexagonal Architecture**. Key features include:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+- **Authentication**: User registration, login, password reset, email verification, and more, powered by **Laravel
+  Fortify**.
+- **Authorization**: Role-based access control with user roles and permissions.
+- **Two-Factor Authentication (2FA)**: Extra layer of security for user accounts, integrated with **Laravel Fortify**.
+- **Session Management**: Manage active sessions and log users out of other devices.
+- **Profile Management**: Users can update their profile information, including email and password.
+- **Inertia.js with Vue 3**: Provides a modern, single-page app experience with a clean structure for building
+  interactive UIs, while still leveraging the full power of Laravel on the backend.
+- **Tailwind CSS**: Utility-first CSS framework that makes it easy to create responsive and customized designs without
+  writing custom CSS.
+- **Laravel Sanctum**: Simple token-based API authentication system, allowing you to securely authenticate and manage
+  user sessions for SPAs and mobile applications.
+- **Laravel Sail**: Lightweight Docker environment for developing Laravel applications locally, simplifying setup and
+  development.
+- **Laravel Pint**: A zero-config PSR-12 compliant PHP code style fixer, ensuring consistent coding standards across
+  your project.
+- **Larastan**: Static analysis tool that helps detect potential issues in your code, improving code quality and
+  reducing bugs.
+- **Pest**: A modern testing framework for PHP that makes testing simpler, faster, and more readable, providing a fluent
+  and expressive syntax for writing tests.
 
-## Code of Conduct
+These features are structured in a way that keeps your business logic clean, maintainable, and aligned with modern
+development practices.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## ⚙️ Installation
 
-## Security Vulnerabilities
+To get started with Laravel Domain Driven, you just need to execute the following command:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```bash
+composer create-project usantisteban/laravel-domain-driven:dev-master my-app
+```
 
-## License
+## 📁 Structure
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+The structure of the `app/` directory in **Laravel Domain Driven** starter package is organized around different
+contexts, each representing a specific area of functionality in the application. This setup follows Domain-Driven
+Design (DDD) principles and Hexagonal Architecture, providing a clear separation of concerns.
+
+**Bounded Contexts**: Each context represents a specific part of the business domain and is loaded using a dedicated
+service provider. For example:
+
+* **Identity And Access** 🛡️: Contains everything related to authentication and authorization.
+* **Shared** 🔄: Holds common functionality used across the entire application, such as utilities, helpers, and common
+  services.
+
+```
+app
+├── IdentityAndAccess
+│   └── IdentityAndAccessServiceProvider.php
+└── Shared
+    └── SharedServiceProvider.php
+```
+
+Each context is divided into **modules**, with each module representing an aggregate root. An aggregate root is a group
+of related information and behaviors that work together as a single unit. For example:
+
+* **User** 👤: Contains all information and logic related to users, such as authentication, profile, and roles.
+* **Order** 🛒: Manages the order details, status, and so on.
+* **Invoice** 💳: Represents the invoicing process, including item details, totals, and payment status.
+
+```
+app
+└── IdentityAndAccess
+    ├── IdentityAndAccessServiceProvider.php
+    └── Users
+```
+
+Each module follows a 3-layer architecture:
+
+```
+app
+└── IdentityAndAccess
+    ├── IdentityAndAccessServiceProvider.php
+    └── Users
+        ├── Application
+        ├── Domain
+        └── Infrastructure
+```
+
+**Domain** 🏠
+
+The **Domain** layer contains the core business logic of the application. It includes the entities, value objects, and
+domain services that define the rules for the root aggregate. In the **IdentityAndAccess** context, specifically for the
+**User** aggregate, the **Domain** layer includes:
+
+```
+app
+└── IdentityAndAccess
+    ├── IdentityAndAccessServiceProvider.php
+    └── Users
+        └── Domain
+            ├── Agent.php
+            ├── Contracts
+            │   └── UserRepository.php
+            ├── Events
+            │   ├── UserCreated.php
+            │   ├── UserDeleted.php
+            │   ├── UserEmailUpdated.php
+            │   └── UserNameUpdated.php
+            ├── Exceptions
+            │   ├── UserException.php
+            │   └── UserNotFound.php
+            ├── PasswordValidationRules.php
+            └── User.php
+
+```
+
+**Application** 📋
+
+This layer contains use cases, commands, and application services, defining how the business logic is used to
+fulfill the application's requirements.
+
+```
+app
+└── IdentityAndAccess
+    ├── IdentityAndAccessServiceProvider.php
+    └── Users
+        └── Application
+            ├── CreateUser.php
+            ├── DeleteUser.php
+            ├── EventHandlers
+            │   └── SendUserEmailVerification.php
+            ├── FindUser.php
+            ├── ResetUserPassword.php
+            ├── UpdateUserPassword.php
+            └── UpdateUserProfileInformation.php
+```
+
+**Infrastructure** 🌐
+
+The layer responsible for interacting with external systems, such as databases, APIs, and file systems. It includes
+repositories, external services, and infrastructure-specific configurations.
+
+```
+app
+└── IdentityAndAccess
+    ├── IdentityAndAccessServiceProvider.php
+    └── Users
+        └── Infrastructure
+            ├── Http
+            │   └── Controllers
+            │       ├── Concerns
+            │       │   ├── ConfirmsPasswords.php
+            │       │   └── ConfirmsTwoFactorAuthentication.php
+            │       ├── DeleteUserController.php
+            │       ├── OtherBrowserSessionsController.php
+            │       ├── UserProfileController.php
+            │       └── UserProfilePhotoController.php
+            └── Persistence
+                ├── EloquentUserRepository.php
+                └── UserFactory.php
+```
+
+This structure ensures that each part of the application is clearly defined, maintainable, and focused on its specific
+domain, while following DDD and Hexagonal Architecture principles.
+
+## Disclaimer ⚠️
+
+This repository represents my personal approach to implementing Domain-Driven Design (DDD) and Hexagonal Architecture
+using the Laravel framework. While I believe this structure can provide a solid foundation for many projects, it may not
+fit every use case or project type.
+
+Please note that this starter is still in early stages, and there is a lot of room for improvement. Contributions,
+feedback, and suggestions are welcome as I continue to refine and expand this project.

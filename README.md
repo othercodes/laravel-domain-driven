@@ -83,8 +83,8 @@ Design (DDD) principles and Hexagonal Architecture, providing a clear separation
 **Bounded Contexts**: Each context represents a specific part of the business domain and is loaded using a dedicated
 service provider. For example:
 
-* **Identity And Access** 🛡️: Contains everything related to authentication and authorization.
-* **Shared** 🔄: Holds common functionality used across the entire application, such as utilities, helpers, and common
+* 🛡️ **Identity And Access**: Contains everything related to authentication and authorization.
+* 🔄 **Shared**: Holds common functionality used across the entire application, such as utilities, helpers, and common
   services.
 
 ```
@@ -98,9 +98,9 @@ app
 Each context is divided into **modules**, with each module representing an aggregate root. An aggregate root is a group
 of related information and behaviors that work together as a single unit. For example:
 
-* **User** 👤: Contains all information and logic related to users, such as authentication, profile, and roles.
-* **Order** 🛒: Manages the order details, status, and so on.
-* **Invoice** 💳: Represents the invoicing process, including item details, totals, and payment status.
+* 👤 **User**: Contains all information and logic related to users, such as authentication, profile, and roles.
+* 🛒 **Order**: Manages the order details, status, and so on.
+* 💳 **Invoice**: Represents the invoicing process, including item details, totals, and payment status.
 
 ```
 app
@@ -121,7 +121,7 @@ app
         └── Infrastructure
 ```
 
-**Domain** 🏠
+🏠 **Domain**
 
 The **Domain** layer contains the core business logic of the application. It includes the entities, value objects, and
 domain services that define the rules for the root aggregate. In the **IdentityAndAccess** context, specifically for the
@@ -149,7 +149,7 @@ app
 
 ```
 
-**Application** 📋
+📋 **Application**
 
 This layer contains use cases, commands, and application services, defining how the business logic is used to
 fulfill the application's requirements.
@@ -170,7 +170,7 @@ app
             └── UpdateUserProfileInformation.php
 ```
 
-**Infrastructure** 🌐
+🌐 **Infrastructure**
 
 The layer responsible for interacting with external systems, such as databases, APIs, and file systems. It includes
 repositories, external services, and infrastructure-specific configurations.
@@ -198,7 +198,7 @@ app
 This structure ensures that each part of the application is clearly defined, maintainable, and focused on its specific
 domain, while following DDD and Hexagonal Architecture principles.
 
-## Disclaimer ⚠️
+## ⚠️ Disclaimer
 
 This repository represents my personal approach to implementing Domain-Driven Design (DDD) and Hexagonal Architecture
 using the Laravel framework. While I believe this structure can provide a solid foundation for many projects, it may not

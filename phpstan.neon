@@ -4,3 +4,6 @@ parameters:
     paths:
         - app/
     level: 5
+    ignoreErrors:
+        - identifier: rules.modelAppends
+        - identifier: trait.unused

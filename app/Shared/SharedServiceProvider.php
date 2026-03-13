@@ -3,11 +3,7 @@
 namespace App\Shared;
 
 use App\Shared\Domain\Contracts\ServiceBus\EventBus;
-use App\Shared\Infrastructure\Http\Middleware\HandleInertiaRequests;
-use App\Shared\Infrastructure\Http\Middleware\ShareInertiaData;
 use App\Shared\Infrastructure\ServiceBus\IlluminateEventBus;
-use Illuminate\Contracts\Container\BindingResolutionException;
-use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
@@ -31,18 +27,20 @@ class SharedServiceProvider extends ServiceProvider
 
     private array $commands = [];
 
-    /**
-     * @throws BindingResolutionException
-     */
     public function boot(): void
     {
         Model::shouldBeStrict();
 
         $this->extendRedirectResponses();
-        $this->bootInertia();
 
         $this->bootEvents();
         $this->bootCommands();
+
+        Event::listen(function (PasswordUpdatedViaController $event) {
+            if (request()->hasSession()) {
+                request()->session()->put(['password_hash_sanctum' => Auth::user()->getAuthPassword()]);
+            }
+        });
 
         Vite::prefetch(concurrency: 3);
     }
@@ -111,27 +109,6 @@ class SharedServiceProvider extends ServiceProvider
                 'title' => $title,
                 'text' => $message,
             ]);
-        });
-    }
-
-    /**
-     * @throws BindingResolutionException
-     */
-    protected function bootInertia(): void
-    {
-        $kernel = $this->app->make(Kernel::class);
-
-        $kernel->appendMiddlewareToGroup('web', ShareInertiaData::class);
-        $kernel->appendToMiddlewarePriority(ShareInertiaData::class);
-
-        if (class_exists(HandleInertiaRequests::class)) {
-            $kernel->appendToMiddlewarePriority(HandleInertiaRequests::class);
-        }
-
-        Event::listen(function (PasswordUpdatedViaController $event) {
-            if (request()->hasSession()) {
-                request()->session()->put(['password_hash_sanctum' => Auth::user()->getAuthPassword()]);
-            }
         });
     }
 }

@@ -92,6 +92,9 @@ Once installed, start the application with the following commands:
 ./vendor/bin/sail npm install
 ./vendor/bin/sail npm run build
 
+# Link the public/storage directory to the storage/app/public directory
+./vendor/bin/sail artisan storage:link
+
 # Run tests to verify everything works
 ./vendor/bin/sail test
 ```

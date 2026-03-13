@@ -1,6 +1,9 @@
 <?php
 
+use App\IdentityAndAccess\IdentityAndAccessServiceProvider;
+use App\Shared\SharedServiceProvider;
+
 return [
-    App\Shared\SharedServiceProvider::class,
-    App\IdentityAndAccess\IdentityAndAccessServiceProvider::class,
+    SharedServiceProvider::class,
+    IdentityAndAccessServiceProvider::class,
 ];

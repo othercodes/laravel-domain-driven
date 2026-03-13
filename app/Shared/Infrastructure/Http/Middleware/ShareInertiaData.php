@@ -19,20 +19,17 @@ class ShareInertiaData
      */
     public function handle($request, $next)
     {
-        Inertia::share(array_filter([
+        Inertia::share([
             'jetstream' => function () use ($request) {
                 $user = $request->user();
 
                 return [
-                    'canCreateTeams' => false,
                     'canManageTwoFactorAuthentication' => Features::canManageTwoFactorAuthentication(),
                     'canUpdatePassword' => Features::enabled(Features::updatePasswords()),
                     'canUpdateProfileInformation' => Features::canUpdateProfileInformation(),
                     'hasEmailVerification' => Features::enabled(Features::emailVerification()),
                     'flash' => $request->session()->get('flash', []),
                     'hasAccountDeletionFeatures' => true,
-                    'hasApiFeatures' => false,
-                    'hasTeamFeatures' => false,
                     'hasTermsAndPrivacyPolicyFeature' => true,
                     'managesProfilePhotos' => true,
                 ];
@@ -53,7 +50,7 @@ class ShareInertiaData
                     return [$key => $bag->messages()];
                 })->all();
             },
-        ]));
+        ]);
 
         return $next($request);
     }

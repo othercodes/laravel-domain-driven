@@ -2,21 +2,97 @@ name: Test
 
 permissions:
   contents: read
-  pull-requests: write
 
 on:
   push:
-    branches: [ 'master', 'develop' ]
+    branches: ['master']
   pull_request:
-    types: [ 'opened', 'synchronize', 'reopened' ]
+    types: ['opened', 'synchronize', 'reopened']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# =============================================================================
+# Job Execution Order:
+#   1. lint + static-analysis (parallel)
+#   2. test (requires lint + static-analysis) — PHP matrix, MySQL service
+#   3. ci-success (requires all) — final gate
+# =============================================================================
 
 jobs:
-  test:
+  # ===========================================================================
+  # STAGE 1: Static Analysis (parallel)
+  # ===========================================================================
+
+  lint:
+    name: Lint & Style
     runs-on: ubuntu-latest
 
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+
+      - name: Cache PHP Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: php-8.4-composer-${{ hashFiles('**/composer.json') }}
+          restore-keys: php-8.4-composer-
+
+      - name: Install PHP Dependencies
+        run: composer install --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+      - name: Check Code Style
+        run: vendor/bin/pint --test
+
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+
+      - name: Cache PHP Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: php-8.4-composer-${{ hashFiles('**/composer.json') }}
+          restore-keys: php-8.4-composer-
+
+      - name: Install PHP Dependencies
+        run: composer install --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+      - name: Run Larastan
+        run: vendor/bin/phpstan analyse --memory-limit=4G --no-progress
+
+  # ===========================================================================
+  # STAGE 2: Tests
+  # Runs Pest tests against MySQL with PHP version matrix.
+  # ===========================================================================
+
+  test:
+    name: Test (PHP ${{ matrix.php-version }})
+    runs-on: ubuntu-latest
+    needs: [lint, static-analysis]
+
     strategy:
+      fail-fast: false
       matrix:
-        php-version: [ '8.2', '8.3', '8.4']
+        php-version: ['8.2', '8.3', '8.4']
 
     env:
       APP_ENV: testing
@@ -43,8 +119,6 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up PHP ${{ matrix.php-version }}
         uses: shivammathur/setup-php@v2
@@ -54,7 +128,7 @@ jobs:
           coverage: xdebug
           tools: composer:v2
 
-      - name: Cache PHP dependencies
+      - name: Cache PHP Dependencies
         uses: actions/cache@v4
         with:
           path: ~/.composer/cache
@@ -65,9 +139,9 @@ jobs:
         run: composer validate
 
       - name: Install PHP Dependencies
-        run: composer install --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist --no-suggest
+        run: composer install --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
 
-      - name: Install NodeJS Dependencies
+      - name: Install Node.js Dependencies
         run: npm install
 
       - name: Build Frontend
@@ -87,11 +161,41 @@ jobs:
           php artisan migrate --no-interaction -v
           php artisan db:seed --no-interaction -v
 
-      - name: Check Code Style
-        run: vendor/bin/pint
-
-      - name: Static Code Analysis
-        run: vendor/bin/phpstan analyse --memory-limit=4G --no-progress
-
-      - name: Execute Unit, Integration and Acceptance Tests
+      - name: Execute Tests
         run: php artisan test --ci --coverage-clover=coverage.xml --log-junit=test.xml -vvv
+
+  # ===========================================================================
+  # STAGE 3: Final Gate
+  # ===========================================================================
+
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    needs: [lint, static-analysis, test]
+    if: always()
+
+    steps:
+      - name: Check All Jobs
+        run: |
+          echo "===== Job Results ====="
+          echo "Lint:            ${{ needs.lint.result }}"
+          echo "Static Analysis: ${{ needs.static-analysis.result }}"
+          echo "Test:            ${{ needs.test.result }}"
+          echo "======================="
+
+          if [ "${{ needs.lint.result }}" != "success" ]; then
+            echo "❌ Lint failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.static-analysis.result }}" != "success" ]; then
+            echo "❌ Static analysis failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "❌ Tests failed"
+            exit 1
+          fi
+
+          echo "✅ All checks passed!"

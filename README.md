@@ -74,6 +74,34 @@ To get started with Laravel Domain Driven, you just need to execute the followin
 composer create-project usantisteban/laravel-domain-driven:dev-master my-app
 ```
 
+## 🚀 Startup
+
+Once installed, start the application with the following commands:
+
+```bash
+# Start Sail services (MySQL, Redis, Mailpit)
+./vendor/bin/sail up -d
+
+# Generate application key
+./vendor/bin/sail artisan key:generate
+
+# Run database migrations
+./vendor/bin/sail artisan migrate
+
+# Install frontend dependencies and build assets
+./vendor/bin/sail npm install
+./vendor/bin/sail npm run build
+
+# Run tests to verify everything works
+./vendor/bin/sail test
+```
+
+For development with HMR, queue worker, and log tailing:
+
+```bash
+composer dev
+```
+
 ## 📁 Structure
 
 The structure of the `app/` directory in **Laravel Domain Driven** starter package is organized around different

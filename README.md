@@ -1,7 +1,7 @@
 # Laravel Domain Driven
 
-<a href="https://laravel.com/docs/11.x"><img src="https://img.shields.io/badge/Laravel-11-FF2D20.svg?style=flat&logo=laravel" alt="Laravel 11"/></a>
-<a href="https://www.php.net/releases/8.2/en.php"><img src="https://img.shields.io/badge/PHP-8.2-777BB4.svg?style=flat&logo=php" alt="PHP 8.2"/></a>
+<a href="https://laravel.com/docs/12.x"><img src="https://img.shields.io/badge/Laravel-12-FF2D20.svg?style=flat&logo=laravel" alt="Laravel 12"/></a>
+<a href="https://www.php.net/releases/8.4/en.php"><img src="https://img.shields.io/badge/PHP-8.2--8.4-777BB4.svg?style=flat&logo=php" alt="PHP 8.2-8.4"/></a>
 <a href="https://github.com/othercodes/laravel-domain-driven/actions/workflows/test.yml"><img src="https://github.com/othercodes/laravel-domain-driven/actions/workflows/test.yml/badge.svg" alt="Test"/></a>
 
 Welcome to Laravel Domain Driven! This is a Laravel starter designed to help you build applications using Hexagonal
@@ -61,7 +61,8 @@ Using **Laravel Domain Driven** helps you build clean, flexible, and long-lastin
 - **Larastan**: Static analysis tool that helps detect potential issues in your code, improving code quality and
   reducing bugs.
 - **Pest**: A modern testing framework for PHP that makes testing simpler, faster, and more readable, providing a fluent
-  and expressive syntax for writing tests.
+  and expressive syntax for writing tests. Includes **architecture tests** that enforce DDD layer separation and bounded
+  context isolation.
 
 These features are structured in a way that keeps your business logic clean, maintainable, and aligned with modern
 development practices.
@@ -97,6 +98,9 @@ Once installed, start the application with the following commands:
 
 # Run tests to verify everything works
 ./vendor/bin/sail test
+
+# Run only architecture tests (DDD layer and context isolation)
+./vendor/bin/sail pest --testsuite=Arch
 ```
 
 For development with HMR, queue worker, and log tailing:

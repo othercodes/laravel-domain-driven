@@ -15,8 +15,8 @@ concurrency:
 
 # =============================================================================
 # Job Execution Order:
-#   1. lint + static-analysis (parallel)
-#   2. test (requires lint + static-analysis) — PHP matrix, MySQL service
+#   1. lint + static-analysis + arch (parallel)
+#   2. test (requires stage 1) — PHP matrix, MySQL service
 #   3. ci-success (requires all) — final gate
 # =============================================================================
 
@@ -79,6 +79,33 @@ jobs:
       - name: Run Larastan
         run: vendor/bin/phpstan analyse --memory-limit=4G --no-progress
 
+  arch:
+    name: Architecture
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+
+      - name: Cache PHP Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: php-8.4-composer-${{ hashFiles('**/composer.json') }}
+          restore-keys: php-8.4-composer-
+
+      - name: Install PHP Dependencies
+        run: composer install --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+      - name: Run Architecture Tests
+        run: vendor/bin/pest --testsuite=Arch
+
   # ===========================================================================
   # STAGE 2: Tests
   # Runs Pest tests against MySQL with PHP version matrix.
@@ -87,7 +114,7 @@ jobs:
   test:
     name: Test (PHP ${{ matrix.php-version }})
     runs-on: ubuntu-latest
-    needs: [lint, static-analysis]
+    needs: [lint, static-analysis, arch]
 
     strategy:
       fail-fast: false
@@ -172,7 +199,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, static-analysis, test]
+    needs: [lint, static-analysis, arch, test]
     if: always()
 
     steps:
@@ -181,6 +208,7 @@ jobs:
           echo "===== Job Results ====="
           echo "Lint:            ${{ needs.lint.result }}"
           echo "Static Analysis: ${{ needs.static-analysis.result }}"
+          echo "Architecture:    ${{ needs.arch.result }}"
           echo "Test:            ${{ needs.test.result }}"
           echo "======================="
 
@@ -191,6 +219,11 @@ jobs:
 
           if [ "${{ needs.static-analysis.result }}" != "success" ]; then
             echo "❌ Static analysis failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.arch.result }}" != "success" ]; then
+            echo "❌ Architecture tests failed"
             exit 1
           fi
 

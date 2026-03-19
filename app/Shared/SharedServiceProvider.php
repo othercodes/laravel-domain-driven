@@ -3,7 +3,11 @@
 namespace App\Shared;
 
 use App\Shared\Domain\Contracts\ServiceBus\EventBus;
+use App\Shared\Domain\Contracts\VersionSource;
 use App\Shared\Infrastructure\ServiceBus\IlluminateEventBus;
+use App\Shared\Infrastructure\Version\EnvVersionSource;
+use App\Shared\Infrastructure\Version\FileVersionSource;
+use App\Shared\Infrastructure\Version\GitTagVersionSource;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
@@ -26,6 +30,15 @@ class SharedServiceProvider extends ServiceProvider
     private array $events = [];
 
     private array $commands = [];
+
+    public function register(): void
+    {
+        $this->app->bind(VersionSource::class, fn () => match (config('version.source')) {
+            'env' => new EnvVersionSource,
+            'file' => new FileVersionSource,
+            default => new GitTagVersionSource,
+        });
+    }
 
     public function boot(): void
     {

@@ -23,6 +23,8 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string $email
  * @property string|null $profile_photo_path
  * @property string $profile_photo_url
+ * @property string|null $two_factor_secret
+ * @property string|null $two_factor_confirmed_at
  *
  * @method static UserFactory factory()
  *

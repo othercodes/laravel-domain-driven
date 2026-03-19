@@ -40,6 +40,8 @@ class IdentityAndAccessServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->loadMigrationsFrom(__DIR__.'/Users/Infrastructure/Persistence/Migrations');
+
         $this->bootFortify();
 
         $this->bootEvents();

@@ -31,6 +31,8 @@ class SharedServiceProvider extends ServiceProvider
     {
         Model::shouldBeStrict();
 
+        $this->loadMigrationsFrom(__DIR__.'/Infrastructure/Persistence/Migrations');
+
         $this->extendRedirectResponses();
 
         $this->bootEvents();

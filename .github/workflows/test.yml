@@ -170,7 +170,7 @@ jobs:
         run: composer install --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
 
       - name: Install Node.js Dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build Frontend
         run: npm run build

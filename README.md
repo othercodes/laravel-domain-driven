@@ -1,7 +1,7 @@
 # Laravel Domain Driven
 
-<a href="https://laravel.com/docs/12.x"><img src="https://img.shields.io/badge/Laravel-12-FF2D20.svg?style=flat&logo=laravel" alt="Laravel 12"/></a>
-<a href="https://www.php.net/releases/8.4/en.php"><img src="https://img.shields.io/badge/PHP-8.2--8.4-777BB4.svg?style=flat&logo=php" alt="PHP 8.2-8.4"/></a>
+<a href="https://laravel.com/docs/13.x"><img src="https://img.shields.io/badge/Laravel-13-FF2D20.svg?style=flat&logo=laravel" alt="Laravel 13"/></a>
+<a href="https://www.php.net/releases/8.4/en.php"><img src="https://img.shields.io/badge/PHP-8.4-777BB4.svg?style=flat&logo=php" alt="PHP 8.4"/></a>
 <a href="https://github.com/othercodes/laravel-domain-driven/actions/workflows/test.yml"><img src="https://github.com/othercodes/laravel-domain-driven/actions/workflows/test.yml/badge.svg" alt="Test"/></a>
 
 Welcome to Laravel Domain Driven! This is a Laravel starter designed to help you build applications using Hexagonal

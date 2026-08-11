@@ -2,16 +2,28 @@
 
 namespace App\IdentityAndAccess\Users\Application;
 
+use App\IdentityAndAccess\Users\Domain\Contracts\UserRepository;
 use App\IdentityAndAccess\Users\Domain\PasswordValidationRules;
 use App\IdentityAndAccess\Users\Domain\User;
+use ComplexHeart\Domain\Contracts\Events\EventBus;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
 
-class CreateUser implements CreatesNewUsers
+/**
+ * Class CreateUser
+ *
+ * @author Unay Santisteban <usantisteban@othercode.io>
+ */
+final readonly class CreateUser implements CreatesNewUsers
 {
     use PasswordValidationRules;
+
+    public function __construct(
+        private UserRepository $repository,
+        private EventBus $eventBus,
+    ) {}
 
     /**
      * Validate and create a newly registered user.
@@ -29,10 +41,14 @@ class CreateUser implements CreatesNewUsers
             'terms' => ['accepted', 'required'],
         ])->validate();
 
-        return User::create([
+        $user = $this->repository->save(User::new([
             'name' => $input['name'],
             'email' => $input['email'],
             'password' => Hash::make($input['password']),
-        ]);
+        ]));
+
+        $user->publishDomainEvents($this->eventBus);
+
+        return $user;
     }
 }

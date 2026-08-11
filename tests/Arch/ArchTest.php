@@ -2,6 +2,36 @@
 
 /*
 |--------------------------------------------------------------------------
+| Bounded Context Discovery
+|--------------------------------------------------------------------------
+| Every rule below is derived from the app/ directory listing, so adding a
+| bounded context or an aggregate is covered automatically. Nothing in this
+| file should ever enumerate a context, a provider or an aggregate by hand.
+|
+| The Arch suite runs without booting the framework, so this uses plain
+| filesystem calls rather than app_path() or the File facade.
+*/
+
+$appPath = dirname(__DIR__, 2).'/app';
+
+$fqcn = fn (string $file): string => 'App\\'.str_replace(
+    ['/', '.php'], ['\\', ''], substr($file, strlen($appPath) + 1)
+);
+
+/** Every directory under app/, e.g. IdentityAndAccess and Shared. */
+$contexts = array_map('basename', glob($appPath.'/*', GLOB_ONLYDIR) ?: []);
+sort($contexts);
+
+/** The same list without the Shared foundation layer. */
+$boundedContexts = array_values(array_diff($contexts, ['Shared']));
+
+/** Turns IdentityAndAccess into "identity and access" for readable test names. */
+$label = fn (string $context): string => strtolower(
+    (string) preg_replace('/(?<!^)[A-Z]/', ' $0', $context)
+);
+
+/*
+|--------------------------------------------------------------------------
 | Presets
 |--------------------------------------------------------------------------
 */
@@ -17,15 +47,25 @@ arch()->preset()->security();
 | Application or Infrastructure layers. Only Shared Domain is
 | allowed as a cross-cutting dependency.
 |
-| Known exception: User.php references UserFactory from Infrastructure
-| due to Laravel's HasFactory trait convention. This is a framework
-| coupling that cannot be avoided without breaking Eloquent factories.
+| Known exception: Eloquent aggregate roots declare newFactory(), which
+| returns a *Factory living in Infrastructure. This is a framework coupling
+| that cannot be avoided without breaking Eloquent factories, so those
+| classes are discovered and exempted instead of being listed by hand.
 */
+
+$eloquentAggregateRoots = [];
+foreach ($boundedContexts as $context) {
+    foreach (glob($appPath.'/'.$context.'/*/Domain/*.php') ?: [] as $file) {
+        if (str_contains((string) file_get_contents($file), 'newFactory')) {
+            $eloquentAggregateRoots[] = $fqcn($file);
+        }
+    }
+}
 
 arch('domain does not depend on infrastructure')
     ->expect('App\*\*\Domain')
     ->not->toUse('App\*\*\Infrastructure')
-    ->ignoring('App\IdentityAndAccess\Users\Domain\User');
+    ->ignoring($eloquentAggregateRoots);
 
 arch('domain does not depend on application')
     ->expect('App\*\*\Domain')
@@ -92,35 +132,36 @@ arch('middleware has handle method')
 | The Shared context is a foundation layer — it must never reference
 | any specific bounded context.
 |
-| When adding a new bounded context, add its isolation rules below.
+| Adding a bounded context needs no change here: its rules are generated
+| below, and every existing context starts forbidding it at the same time.
 */
 
-arch('identity and access domain only uses own context and shared domain')
-    ->expect('App\IdentityAndAccess\*\Domain')
-    ->not->toUse('App\Shared\Infrastructure')
-    ->not->toUse('App\Shared\Application');
+foreach ($boundedContexts as $context) {
+    $forbidden = array_merge(
+        ['App\Shared\Infrastructure', 'App\Shared\Application'],
+        array_map(
+            fn (string $other): string => 'App\\'.$other,
+            array_values(array_diff($boundedContexts, [$context]))
+        )
+    );
 
-arch('identity and access application only uses own context and shared domain')
-    ->expect('App\IdentityAndAccess\*\Application')
-    ->not->toUse('App\Shared\Infrastructure')
-    ->not->toUse('App\Shared\Application');
+    // A context need not have every layer: aggregates are free to skip
+    // Application or Domain. Pest throws if the pattern matches no directory,
+    // so only emit the rule for layers that actually exist.
+    foreach (['Domain', 'Application'] as $layer) {
+        if ((glob($appPath.'/'.$context.'/*/'.$layer, GLOB_ONLYDIR) ?: []) === []) {
+            continue;
+        }
 
-// Add new bounded context isolation rules here following the same pattern:
-// arch('{context} domain only uses own context and shared domain')
-//     ->expect('App\{Context}\*\Domain')
-//     ->not->toUse('App\Shared\Infrastructure')
-//     ->not->toUse('App\Shared\Application')
-//     ->not->toUse('App\IdentityAndAccess');
-//
-// arch('{context} application only uses own context and shared domain')
-//     ->expect('App\{Context}\*\Application')
-//     ->not->toUse('App\Shared\Infrastructure')
-//     ->not->toUse('App\Shared\Application')
-//     ->not->toUse('App\IdentityAndAccess');
+        arch($label($context).' '.strtolower($layer).' only uses own context and shared domain')
+            ->expect('App\\'.$context.'\*\\'.$layer)
+            ->not->toUse($forbidden);
+    }
+}
 
 arch('shared context does not depend on any bounded context')
     ->expect('App\Shared')
-    ->not->toUse('App\IdentityAndAccess');
+    ->not->toUse(array_map(fn (string $c): string => 'App\\'.$c, $boundedContexts));
 
 /*
 |--------------------------------------------------------------------------
@@ -130,10 +171,10 @@ arch('shared context does not depend on any bounded context')
 */
 
 arch('service providers extend the bounded context base provider')
-    ->expect([
-        'App\IdentityAndAccess\IdentityAndAccessServiceProvider',
-        'App\Shared\SharedServiceProvider',
-    ])
+    ->expect(array_map(
+        fn (string $context): string => 'App\\'.$context.'\\'.$context.'ServiceProvider',
+        $contexts
+    ))
     ->toExtend('ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider');
 
 /*

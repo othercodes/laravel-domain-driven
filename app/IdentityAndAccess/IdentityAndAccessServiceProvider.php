@@ -10,11 +10,10 @@ use App\IdentityAndAccess\Users\Application\UpdateUserProfileInformation;
 use App\IdentityAndAccess\Users\Domain\Contracts\UserRepository;
 use App\IdentityAndAccess\Users\Domain\Events\UserEmailUpdated;
 use App\IdentityAndAccess\Users\Infrastructure\Persistence\EloquentUserRepository;
+use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Laravel\Fortify\Fortify;
@@ -24,42 +23,25 @@ use Laravel\Fortify\Fortify;
  *
  * @author Unay Santisteban <usantisteban@othercode.io>
  */
-class IdentityAndAccessServiceProvider extends ServiceProvider
+class IdentityAndAccessServiceProvider extends BoundedContextServiceProvider
 {
     public array $bindings = [
         UserRepository::class => EloquentUserRepository::class,
     ];
 
-    public array $events = [
+    protected array $events = [
         UserEmailUpdated::class => SendUserEmailVerification::class,
     ];
 
-    private array $commands = [];
-
-    public function register(): void {}
+    protected array $migrations = [
+        __DIR__.'/Users/Infrastructure/Persistence/Migrations',
+    ];
 
     public function boot(): void
     {
-        $this->loadMigrationsFrom(__DIR__.'/Users/Infrastructure/Persistence/Migrations');
+        parent::boot();
 
         $this->bootFortify();
-
-        $this->bootEvents();
-        $this->bootCommands();
-    }
-
-    private function bootEvents(): void
-    {
-        foreach ($this->events as $event => $listener) {
-            Event::listen($event, $listener);
-        }
-    }
-
-    private function bootCommands(): void
-    {
-        if ($this->app->runningInConsole()) {
-            $this->commands($this->commands);
-        }
     }
 
     private function bootFortify(): void

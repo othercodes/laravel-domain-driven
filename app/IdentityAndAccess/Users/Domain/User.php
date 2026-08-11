@@ -95,7 +95,7 @@ class User extends Authenticatable implements MustVerifyEmail
                 'name' => $name,
             ]);
 
-            $this->registerDomainEvent(new UserNameUpdated($this));
+            $this->registerDomainEvent(UserNameUpdated::new((string) $this->id));
         }
 
         return $this;
@@ -109,7 +109,7 @@ class User extends Authenticatable implements MustVerifyEmail
                 'email_verified_at' => null,
             ]);
 
-            $this->registerDomainEvent(new UserEmailUpdated($this));
+            $this->registerDomainEvent(UserEmailUpdated::new((string) $this->id));
         }
 
         return $this;
@@ -127,7 +127,7 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function toBeDeleted(): self
     {
-        $this->registerDomainEvent(new UserDeleted($this->id));
+        $this->registerDomainEvent(UserDeleted::new((string) $this->id));
 
         return $this;
     }

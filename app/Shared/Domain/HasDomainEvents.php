@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Shared\Domain;
 
-use App\Shared\Domain\Contracts\ServiceBus\Event;
-use App\Shared\Domain\Contracts\ServiceBus\EventBus;
+use ComplexHeart\Domain\Contracts\Events\Event;
+use ComplexHeart\Domain\Contracts\Events\EventBus;
 
 /**
  * Trait HasDomainEvents

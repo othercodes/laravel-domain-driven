@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace App\IdentityAndAccess\Users\Domain\Events;
 
-use App\IdentityAndAccess\Users\Domain\User;
-use App\Shared\Domain\Contracts\ServiceBus\Event;
-use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Queue\SerializesModels;
+use ComplexHeart\Domain\Contracts\Events\Event;
+use ComplexHeart\Domain\Events\IsDomainEvent;
 
 /**
  * Class UserNameUpdated
@@ -16,8 +14,10 @@ use Illuminate\Queue\SerializesModels;
  */
 final class UserNameUpdated implements Event
 {
-    use InteractsWithSockets;
-    use SerializesModels;
+    use IsDomainEvent;
 
-    public function __construct(public User $user) {}
+    /**
+     * @param  string  $user  The user uuid
+     */
+    public function __construct(public string $user) {}
 }

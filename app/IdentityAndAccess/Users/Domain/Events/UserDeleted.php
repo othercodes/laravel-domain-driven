@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\IdentityAndAccess\Users\Domain\Events;
 
-use App\Shared\Domain\Contracts\ServiceBus\Event;
-use Illuminate\Broadcasting\InteractsWithSockets;
+use ComplexHeart\Domain\Contracts\Events\Event;
+use ComplexHeart\Domain\Events\IsDomainEvent;
 
 /**
  * Class UserDeleted
@@ -14,7 +14,7 @@ use Illuminate\Broadcasting\InteractsWithSockets;
  */
 final class UserDeleted implements Event
 {
-    use InteractsWithSockets;
+    use IsDomainEvent;
 
     /**
      * @param  string  $user  The deleted user uuid

@@ -39,7 +39,7 @@ arch('domain events are final and implement event interface')
     ->expect('App\*\*\Domain\Events')
     ->toBeClasses()
     ->toBeFinal()
-    ->toImplement('App\Shared\Domain\Contracts\ServiceBus\Event');
+    ->toImplement('ComplexHeart\Domain\Contracts\Events\Event');
 
 arch('domain exceptions extend exception')
     ->expect('App\*\*\Domain\Exceptions')
@@ -129,12 +129,12 @@ arch('shared context does not depend on any bounded context')
 | Each bounded context wires its own dependencies via a service provider.
 */
 
-arch('service providers extend base provider')
+arch('service providers extend the bounded context base provider')
     ->expect([
         'App\IdentityAndAccess\IdentityAndAccessServiceProvider',
         'App\Shared\SharedServiceProvider',
     ])
-    ->toExtend('Illuminate\Support\ServiceProvider');
+    ->toExtend('ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider');
 
 /*
 |--------------------------------------------------------------------------

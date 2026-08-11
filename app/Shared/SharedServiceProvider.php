@@ -2,14 +2,14 @@
 
 namespace App\Shared;
 
-use App\Shared\Domain\Contracts\ServiceBus\EventBus;
-use App\Shared\Infrastructure\ServiceBus\IlluminateEventBus;
+use ComplexHeart\Domain\Contracts\Events\EventBus;
+use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;
+use ComplexHeart\Infrastructure\Laravel\ServiceBus\IlluminateEventBus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Vite;
-use Illuminate\Support\ServiceProvider;
 use Laravel\Fortify\Events\PasswordUpdatedViaController;
 
 /**
@@ -17,26 +17,23 @@ use Laravel\Fortify\Events\PasswordUpdatedViaController;
  *
  * @author Unay Santisteban <usantisteban@othercode.io>
  */
-class SharedServiceProvider extends ServiceProvider
+class SharedServiceProvider extends BoundedContextServiceProvider
 {
     public array $bindings = [
         EventBus::class => IlluminateEventBus::class,
     ];
 
-    private array $events = [];
-
-    private array $commands = [];
+    protected array $migrations = [
+        __DIR__.'/Infrastructure/Persistence/Migrations',
+    ];
 
     public function boot(): void
     {
+        parent::boot();
+
         Model::shouldBeStrict();
 
-        $this->loadMigrationsFrom(__DIR__.'/Infrastructure/Persistence/Migrations');
-
         $this->extendRedirectResponses();
-
-        $this->bootEvents();
-        $this->bootCommands();
 
         Event::listen(function (PasswordUpdatedViaController $event) {
             if (request()->hasSession()) {
@@ -45,20 +42,6 @@ class SharedServiceProvider extends ServiceProvider
         });
 
         Vite::prefetch(concurrency: 3);
-    }
-
-    private function bootEvents(): void
-    {
-        foreach ($this->events as $event => $listener) {
-            Event::listen($event, $listener);
-        }
-    }
-
-    private function bootCommands(): void
-    {
-        if ($this->app->runningInConsole()) {
-            $this->commands($this->commands);
-        }
     }
 
     protected function extendRedirectResponses(): void

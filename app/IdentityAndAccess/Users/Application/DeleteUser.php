@@ -4,7 +4,7 @@ namespace App\IdentityAndAccess\Users\Application;
 
 use App\IdentityAndAccess\Users\Domain\Contracts\UserRepository;
 use App\IdentityAndAccess\Users\Domain\Exceptions\UserNotFound;
-use App\Shared\Domain\Contracts\ServiceBus\EventBus;
+use ComplexHeart\Domain\Contracts\Events\EventBus;
 
 /**
  * Class DeleteUser

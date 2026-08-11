@@ -4,7 +4,7 @@ namespace App\IdentityAndAccess\Users\Infrastructure\Http\Controllers;
 
 use App\IdentityAndAccess\Users\Application\DeleteUser;
 use App\IdentityAndAccess\Users\Domain\Contracts\UserRepository;
-use App\Shared\Domain\Contracts\ServiceBus\EventBus;
+use ComplexHeart\Domain\Contracts\Events\EventBus;
 use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;

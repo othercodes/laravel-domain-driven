@@ -30,7 +30,7 @@ final readonly class SendUserEmailVerification implements ShouldQueue
     public function handle(UserEmailUpdated $event): void
     {
         $this->finder
-            ->byId($event->user->id)
+            ->byId($event->user)
             ->sendEmailVerificationNotification();
     }
 }

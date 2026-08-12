@@ -1,0 +1,12 @@
+<?php
+
+/*
+| Web routes owned by the {{ context }} bounded context.
+|
+| Loaded by {{ context }}ServiceProvider through its $routes array, already
+| wrapped in the web middleware group:
+|
+|   use Illuminate\Support\Facades\Route;
+|
+|   Route::get('/example', ExampleController::class)->name('example');
+*/

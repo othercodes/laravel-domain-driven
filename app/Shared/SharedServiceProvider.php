@@ -2,6 +2,7 @@
 
 namespace App\Shared;
 
+use App\Shared\Infrastructure\Console\Commands\MakeBoundedContextCommand;
 use ComplexHeart\Domain\Contracts\Events\EventBus;
 use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;
 use ComplexHeart\Infrastructure\Laravel\ServiceBus\IlluminateEventBus;
@@ -29,6 +30,10 @@ class SharedServiceProvider extends BoundedContextServiceProvider
 
     protected array $routes = [
         'web' => [__DIR__.'/Infrastructure/Http/Routes/web.php'],
+    ];
+
+    protected array $commands = [
+        MakeBoundedContextCommand::class,
     ];
 
     public function boot(): void

@@ -1,0 +1,30 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Infrastructure\Http\Controllers;
+
+use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
+use App\Shared\Infrastructure\Http\Controllers\InertiaController;
+use Illuminate\Http\Request;
+use Inertia\Response;
+
+/**
+ * Class {{ aggregate }}Controller
+ *
+ * Renders through InertiaController::render() rather than Inertia::render(),
+ * so the page goes through the rendering callbacks the base class exposes.
+ *
+ * @author {{ author }}
+ */
+class {{ aggregate }}Controller extends InertiaController
+{
+    public function __construct(private readonly {{ aggregate }}Repository $repository) {}
+
+    public function index(Request $request): Response
+    {
+        return $this->render($request, '{{ plural }}/Index', [
+            '{{ pluralVariable }}' => $this->repository->match([]),
+        ]);
+    }
+}

@@ -81,6 +81,20 @@ test('the factory is routed through the aggregate factory method', function () {
         ->toContain('protected static function newFactory(): InvoiceFactory');
 });
 
+test('the web flag generates an Inertia controller', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'Billing', 'name' => 'Invoice', '--web' => true])
+        ->assertSuccessful();
+
+    // Rendering goes through the shared base, not Inertia::render directly,
+    // so the page passes through its rendering callbacks.
+    expect(File::get(app_path('Billing/Invoices/Infrastructure/Http/Controllers/InvoiceController.php')))
+        ->toContain('extends InertiaController')
+        ->toContain("\$this->render(\$request, 'Invoices/Index'");
+
+    expect(app_path('Billing/Invoices/Infrastructure/Http/Controllers/API/InvoiceController.php'))
+        ->not->toBeFile();
+});
+
 test('it pluralises the aggregate directory and singularises the class', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'Billing', 'name' => 'invoices'])
         ->assertSuccessful();
@@ -105,6 +119,7 @@ test('all generates every optional piece', function () {
     expect(app_path('Billing/Invoices/Domain/Events/InvoiceCreated.php'))->toBeFile()
         ->and(app_path('Billing/Invoices/Infrastructure/Persistence/InvoiceFactory.php'))->toBeFile()
         ->and(app_path('Billing/Invoices/Infrastructure/Http/Requests/StoreInvoiceRequest.php'))->toBeFile()
+        ->and(app_path('Billing/Invoices/Infrastructure/Http/Controllers/InvoiceController.php'))->toBeFile()
         ->and(app_path('Billing/Invoices/Infrastructure/Http/Controllers/API/InvoiceController.php'))->toBeFile()
         ->and(File::glob(app_path('Billing/Invoices/Infrastructure/Persistence/Migrations/*_create_invoices_table.php')))
         ->toHaveCount(1);

@@ -27,6 +27,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         {--factory : Add a model factory}
         {--events : Add a Created domain event and record it}
         {--requests : Add a form request}
+        {--web : Add an Inertia controller}
         {--api : Add an API controller}
         {--all : Everything above}
         {--force : Overwrite files that already exist}';
@@ -75,13 +76,33 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $this->newLine();
         $this->components->info("Aggregate [{$this->aggregate}] created in [{$this->context}].");
 
-        if ($this->wants('api')) {
-            $this->components->bulletList([
-                "Register the controller in app/{$this->context}/Shared/Infrastructure/Http/Routes/api.php",
-            ]);
-        }
+        $this->printRouteHints();
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Controllers are generated, but neither the route nor the Vue page is:
+     * routes live in a file the developer owns, and the page lives outside
+     * app/ under a path that vite.config.js decides. So they get printed.
+     */
+    private function printRouteHints(): void
+    {
+        $routes = base_path("app/{$this->context}/Shared/Infrastructure/Http/Routes");
+        $slug = Str::kebab($this->plural);
+
+        if ($this->wants('web')) {
+            $this->newLine();
+            $this->line("  Add to <options=bold>{$this->relative($routes)}/web.php</>:");
+            $this->line("  <fg=gray>Route::get('/{$slug}', [{$this->aggregate}Controller::class, 'index'])->name('{$slug}.index');</>");
+            $this->line("  and create the page at <options=bold>resources/templates/tailwindcss/js/Pages/{$this->plural}/Index.vue</>");
+        }
+
+        if ($this->wants('api')) {
+            $this->newLine();
+            $this->line("  Add to <options=bold>{$this->relative($routes)}/api.php</>:");
+            $this->line("  <fg=gray>Route::get('/{$slug}', [{$this->aggregate}Controller::class, 'index'])->name('{$slug}.index');</>");
+        }
     }
 
     private function wants(string $option): bool
@@ -145,6 +166,10 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         if ($this->wants('requests')) {
             $this->put("{$path}/Infrastructure/Http/Requests/Store{$this->aggregate}Request.php", $this->stub('aggregate.request', $this->replacements()));
+        }
+
+        if ($this->wants('web')) {
+            $this->put("{$path}/Infrastructure/Http/Controllers/{$this->aggregate}Controller.php", $this->stub('aggregate.web-controller', $this->replacements()));
         }
 
         if ($this->wants('api')) {
@@ -221,6 +246,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
             '{{ aggregate }}' => $this->aggregate,
             '{{ plural }}' => $this->plural,
             '{{ variable }}' => $this->variable,
+            '{{ pluralVariable }}' => Str::camel($this->plural),
             '{{ table }}' => $this->table,
             '{{ author }}' => config('app.scaffold_author', 'Unay Santisteban <usantisteban@othercode.io>'),
         ], $extra);

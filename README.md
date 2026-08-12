@@ -143,6 +143,7 @@ resolvable at all. Everything else is opt in, because real aggregates rarely nee
 | `--factory` | A model factory, routed through the aggregate's `new()` |
 | `--events` | A `Created` domain event, recorded by `new()` |
 | `--requests` | A form request |
+| `--web` | An Inertia controller, rendering through `InertiaController` |
 | `--api` | An API controller |
 | `--all` | All of the above |
 

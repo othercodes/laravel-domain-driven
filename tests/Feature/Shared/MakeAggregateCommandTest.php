@@ -281,15 +281,34 @@ test('it refuses to overwrite an existing aggregate', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertFailed();
 });
 
-test('it hints a distinct route name for the api controller', function () {
-    // A route name is global: sharing one leaves route() resolving to
-    // whichever file was loaded first, with no error either way.
+test('it hints a distinct route for the api controller', function () {
+    // Sharing a URI does not add a second route: RouteCollection keys by
+    // method and URI, so the api route would replace the web one and take
+    // its name with it. Sharing a name resolves route() to whichever came
+    // first. Both have to differ.
     $this->artisan('ldd:make:aggregate', [
         'context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true, '--api' => true,
     ])
-        ->expectsOutputToContain("->name('widgets.show')")
-        ->expectsOutputToContain("->name('api.widgets.show')")
+        // One expectation per emitted line: each is consumed as it matches,
+        // so URI and name go in the same assertion rather than two.
+        ->expectsOutputToContain("Route::get('/widgets/{id}', [WidgetController::class, 'show'])->name('widgets.show');")
+        ->expectsOutputToContain("Route::get('/api/widgets/{id}', [WidgetController::class, 'show'])->name('api.widgets.show');")
         ->assertSuccessful();
+});
+
+test('it fails when the context provider has nothing to wire', function () {
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    File::put($provider, "<?php\n\nnamespace App\ScaffoldFixture;\n\nuse ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;\n\nclass ScaffoldFixtureServiceProvider extends BoundedContextServiceProvider\n{\n}\n");
+
+    // Reporting success would leave an aggregate whose repository contract
+    // resolves to nothing — the whole point of the wiring step.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
+        ->assertFailed();
+
+    // A provider it could not wire must be left exactly as it was, not
+    // carrying imports for a binding that never landed.
+    expect(File::get($provider))->not->toContain('WidgetRepository');
 });
 
 test('it warns when the route file the hint points at does not exist', function () {

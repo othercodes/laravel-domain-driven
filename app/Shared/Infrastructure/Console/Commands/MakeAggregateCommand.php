@@ -134,10 +134,17 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $dir = app_path("{$this->context}/Shared/Infrastructure/Http/Routes");
         $slug = Str::kebab($this->plural);
 
-        // A route name is global, so web and api cannot share one: Laravel
-        // keeps both routes but resolves route() to whichever was registered
-        // first, leaving the other unreachable by name.
-        foreach (['web' => '', 'api' => 'api.'] as $kind => $prefix) {
+        // Web and api must differ in both URI and name. RouteCollection keys
+        // routes by method and URI, so reusing the URI replaces the web route
+        // outright instead of adding a second one; and a route name is global,
+        // so sharing that resolves route() to whichever came first. The api
+        // file gets no URI prefix of its own, hence carrying it in the path.
+        $routes = [
+            'web' => ['uri' => "/{$slug}", 'name' => "{$slug}.show"],
+            'api' => ['uri' => "/api/{$slug}", 'name' => "api.{$slug}.show"],
+        ];
+
+        foreach ($routes as $kind => $route) {
             if (! $this->wants($kind)) {
                 continue;
             }
@@ -146,7 +153,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
             $this->newLine();
             $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
-            $this->line("  <fg=gray>Route::get('/{$slug}/{id}', [{$this->aggregate}Controller::class, 'show'])->name('{$prefix}{$slug}.show');</>");
+            $this->line("  <fg=gray>Route::get('{$route['uri']}/{id}', [{$this->aggregate}Controller::class, 'show'])->name('{$route['name']}');</>");
 
             if ($kind === 'api') {
                 $this->line("  <fg=gray>// importing the {$this->aggregate}Controller under Http\\Controllers\\API</>");

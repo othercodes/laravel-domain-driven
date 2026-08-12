@@ -88,9 +88,16 @@ abstract class ScaffoldCommand extends Command
         );
     }
 
+    /**
+     * Writes a file, never over one that is already there.
+     *
+     * These commands scaffold, they do not edit: anything on disk may have
+     * been worked on, and a migration may already have been applied. Running
+     * one again fills in what is missing and reports what it left alone.
+     */
     protected function put(string $path, string $contents): bool
     {
-        if ($this->files->exists($path) && ! $this->option('force')) {
+        if ($this->files->exists($path)) {
             $this->components->twoColumnDetail($this->relative($path), '<fg=yellow>exists, skipped</>');
 
             return false;

@@ -30,8 +30,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         {--web : Add an Inertia controller}
         {--api : Add an API controller}
         {--all : Everything above}
-        {--table= : Table name, defaults to the pluralised aggregate}
-        {--force : Overwrite files that already exist}';
+        {--table= : Table name, defaults to the pluralised aggregate}';
 
     protected $description = 'Create an aggregate inside a bounded context';
 
@@ -92,11 +91,10 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         $path = app_path("{$this->context}/{$this->plural}");
 
-        if ($this->files->isDirectory($path) && ! $this->option('force')) {
-            $this->components->error("The aggregate [{$this->plural}] already exists in [{$this->context}].");
-
-            return self::FAILURE;
-        }
+        // Running this again is how you add an option you skipped, so nothing
+        // already on disk is rewritten: the model may have been worked on and
+        // the migration may already have been applied.
+        $modelExisted = $this->files->exists("{$path}/Domain/{$this->aggregate}.php");
 
         if ($this->wants('migration') && ($owner = $this->tableOwnedElsewhere()) !== null) {
             $this->components->error("Table [{$this->table}] already has a create migration in [{$owner}].");
@@ -115,13 +113,48 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $wired = $this->wireProvider();
 
         $this->newLine();
-        $this->components->info("Aggregate [{$this->aggregate}] created in [{$this->context}].");
+        $this->components->info("Aggregate [{$this->aggregate}] ".($modelExisted ? 'updated' : 'created')." in [{$this->context}].");
 
+        $this->printModelHints($modelExisted);
         $this->printRouteHints();
 
         // The files exist but the context does not know about them, so a
         // script chaining on this command must not treat it as done.
         return $wired ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * The model carries the wiring for --events and --factory, and it is not
+     * rewritten once it exists. Adding either option later costs a line or
+     * two by hand, which is the price of never losing what the model grew.
+     */
+    private function printModelHints(bool $modelExisted): void
+    {
+        if (! $modelExisted) {
+            return;
+        }
+
+        $lines = [];
+
+        if ($this->wants('events')) {
+            $lines[] = "in new(): \${$this->variable}->registerDomainEvent({$this->aggregate}Created::new(\${$this->variable}->id));";
+        }
+
+        if ($this->wants('factory')) {
+            $lines[] = 'use HasFactory;';
+            $lines[] = "protected static function newFactory(): {$this->aggregate}Factory { return {$this->aggregate}Factory::new(); }";
+        }
+
+        if ($lines === []) {
+            return;
+        }
+
+        $this->newLine();
+        $this->line("  <fg=yellow>{$this->aggregate} was left as it is. Add to it by hand:</>");
+
+        foreach ($lines as $line) {
+            $this->line("  <fg=gray>{$line}</>");
+        }
     }
 
     /**

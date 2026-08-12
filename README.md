@@ -150,6 +150,10 @@ resolvable at all. Everything else is opt in, because real aggregates rarely nee
 The table name defaults to the pluralised aggregate. Two contexts may each own an `Invoice`, but
 only one can create the `invoices` table, so `--table=billing_invoices` renames it for the second.
 
+Both commands only ever add. Run one again with a flag you skipped and it writes what is missing,
+leaves every file already on disk alone — your migration may have been applied, and the provider
+carries wiring no stub knows about — and prints the lines to add by hand.
+
 ## 📁 Structure
 
 The structure of the `app/` directory in **Laravel Domain Driven** starter package is organized around different

@@ -221,7 +221,7 @@ test('it does not bind twice when the provider was reformatted', function () {
         File::get($provider)
     ));
 
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--force' => true])
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
         ->assertSuccessful();
 
     // EloquentWidgetRepository::class contains WidgetRepository::class, so
@@ -240,11 +240,22 @@ test('it reuses the migration filename instead of duplicating it', function () {
     $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true];
 
     $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
-    $this->artisan('ldd:make:aggregate', $args + ['--force' => true])->assertSuccessful();
 
-    // Two create-table migrations would abort `migrate` on a fresh database.
+    $migration = File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*_create_widgets_table.php'))[0];
+    File::put($migration, str_replace(
+        '$table->timestamps();',
+        "\$table->string('reference')->unique();\n            \$table->timestamps();",
+        File::get($migration)
+    ));
+
+    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
+
+    // Two create-table migrations would abort `migrate` on a fresh database,
+    // and rewriting the one that is there loses schema that may already have
+    // been applied: Laravel records it as run by filename, so it never replays.
     expect(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*_create_widgets_table.php')))
-        ->toHaveCount(1);
+        ->toHaveCount(1)
+        ->and(File::get($migration))->toContain("\$table->string('reference')->unique();");
 });
 
 test('it wires a provider whose arrays are declared inline', function () {
@@ -276,9 +287,21 @@ test('it refuses an unknown bounded context', function () {
         ->assertFailed();
 });
 
-test('it refuses to overwrite an existing aggregate', function () {
+test('re-running adds the missing piece without touching the model', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertFailed();
+
+    $model = app_path('ScaffoldFixture/Widgets/Domain/Widget.php');
+    File::put($model, str_replace("        //\n    ];", "        'reference',\n    ];", File::get($model)));
+
+    // Adding an option you skipped is the reason to run this twice, and the
+    // model is where hand-written work accumulates.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
+        ->expectsOutputToContain('Widget was left as it is. Add to it by hand:')
+        ->assertSuccessful();
+
+    expect(app_path('ScaffoldFixture/Widgets/Domain/Events/WidgetCreated.php'))->toBeFile()
+        ->and(File::get($model))->toContain("'reference',")
+        ->and(File::get($model))->not->toContain('registerDomainEvent');
 });
 
 test('it hints a distinct route for the api controller', function () {

@@ -6,6 +6,7 @@ use App\IdentityAndAccess\Users\Domain\Contracts\UserRepository;
 use App\IdentityAndAccess\Users\Domain\PasswordValidationRules;
 use App\IdentityAndAccess\Users\Domain\User;
 use ComplexHeart\Domain\Contracts\Events\EventBus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -41,14 +42,19 @@ final readonly class CreateUser implements CreatesNewUsers
             'terms' => ['accepted', 'required'],
         ])->validate();
 
-        $user = $this->repository->save(User::new([
-            'name' => $input['name'],
-            'email' => $input['email'],
-            'password' => Hash::make($input['password']),
-        ]));
+        // Events are published inside the transaction: listeners run
+        // synchronously, so a failing one must not leave a persisted user
+        // behind a request that never completed.
+        return DB::transaction(function () use ($input): User {
+            $user = $this->repository->save(User::new([
+                'name' => $input['name'],
+                'email' => $input['email'],
+                'password' => Hash::make($input['password']),
+            ]));
 
-        $user->publishDomainEvents($this->eventBus);
+            $user->publishDomainEvents($this->eventBus);
 
-        return $user;
+            return $user;
+        });
     }
 }

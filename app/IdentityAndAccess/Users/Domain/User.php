@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
@@ -45,14 +46,19 @@ class User extends Authenticatable implements MustVerifyEmail
      * Creates a new User and registers the UserCreated domain event.
      *
      * The identifier is assigned up front so the event can carry it before
-     * the aggregate is persisted.
+     * the aggregate is persisted. A caller may supply its own id — it is set
+     * explicitly rather than through $fillable, so mass assignment is never
+     * a way to choose an identifier.
+     *
+     * Publishing the registered events is the application layer's job, see
+     * CreateUser.
      *
      * @param  array<string, mixed>  $attributes
      */
     public static function new(array $attributes = []): self
     {
-        $user = new self($attributes);
-        $user->id ??= $user->newUniqueId();
+        $user = new self(Arr::except($attributes, ['id']));
+        $user->id = $attributes['id'] ?? $user->newUniqueId();
         $user->registerDomainEvent(UserCreated::new($user->id));
 
         return $user;

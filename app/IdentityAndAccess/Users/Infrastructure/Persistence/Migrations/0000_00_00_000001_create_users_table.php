@@ -4,6 +4,14 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
+/*
+ * Users are identified by a uuid, assigned by the aggregate in User::new()
+ * before it is persisted, so domain events can carry the identifier.
+ *
+ * This baseline migration was changed in place rather than superseded. A
+ * project generated from an earlier revision of the starter still has a
+ * bigint users.id and must run migrate:fresh, or write its own conversion.
+ */
 return new class extends Migration
 {
     /**

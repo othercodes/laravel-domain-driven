@@ -20,6 +20,18 @@ class UserFactory extends Factory
     protected static ?string $password;
 
     /**
+     * Build the model through the aggregate's own factory method, so that
+     * seeded and tested users get an identifier and register UserCreated
+     * exactly like the ones created by the application layer.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function newModel(array $attributes = []): User
+    {
+        return User::new($attributes);
+    }
+
+    /**
      * Define the model's default state.
      *
      * @return array<string, mixed>

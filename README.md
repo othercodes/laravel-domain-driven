@@ -147,6 +147,9 @@ resolvable at all. Everything else is opt in, because real aggregates rarely nee
 | `--api` | An API controller |
 | `--all` | All of the above |
 
+The table name defaults to the pluralised aggregate. Two contexts may each own an `Invoice`, but
+only one can create the `invoices` table, so `--table=billing_invoices` renames it for the second.
+
 ## 📁 Structure
 
 The structure of the `app/` directory in **Laravel Domain Driven** starter package is organized around different

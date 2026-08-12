@@ -135,14 +135,14 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
         $contents = $this->files->get($file);
         $class = "App\\{$context}\\{$context}ServiceProvider";
 
-        // Looking for the fully qualified name would also match the import
-        // this command adds, so a run that added the import but never reached
-        // the list would report itself as already registered for ever after.
-        // The lookbehind keeps Probe from matching SubProbeServiceProvider.
-        $registered = preg_match(
-            '/(?<![\w\\\\])'.preg_quote($context, '/').'ServiceProvider::class/',
-            $contents
-        ) === 1;
+        // Both shapes count as registered: Laravel's own providers.php lists
+        // classes fully qualified, while this command adds an import and the
+        // short name. Matching the bare class name would also match the
+        // import, so a run that added the import but never reached the list
+        // would report itself as already registered for ever after; the
+        // lookbehind keeps Probe from matching SubProbeServiceProvider.
+        $registered = str_contains($contents, $class.'::class')
+            || preg_match('/(?<![\w\\\\])'.preg_quote($context, '/').'ServiceProvider::class/', $contents) === 1;
 
         if ($registered) {
             $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=yellow>already registered</>');

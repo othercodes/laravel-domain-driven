@@ -101,7 +101,7 @@ class SharedServiceProvider extends BoundedContextServiceProvider
         RedirectResponse::macro('withErrorAlert', function (string $message, string $title = 'Oops...') {
             /** @var RedirectResponse $this */
             return $this->with('flash.alert', [
-                'style' => 'success',
+                'style' => 'danger',
                 'title' => $title,
                 'text' => $message,
             ]);

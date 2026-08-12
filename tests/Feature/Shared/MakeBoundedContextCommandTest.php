@@ -120,6 +120,16 @@ test('it fails loudly when the provider list cannot be found', function () {
     expect(File::get($this->providers))->not->toContain('ScaffoldFixture');
 });
 
+test('a provider already listed fully qualified is not added again', function () {
+    // Laravel generates bootstrap/providers.php with no imports at all, so
+    // this is the shape a fresh application actually ships.
+    File::put($this->providers, "<?php\n\nreturn [\n    App\Shared\SharedServiceProvider::class,\n    App\ScaffoldFixture\ScaffoldFixtureServiceProvider::class,\n];\n");
+
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+
+    expect(substr_count(File::get($this->providers), 'ScaffoldFixtureServiceProvider::class'))->toBe(1);
+});
+
 test('a context is not mistaken for one whose name ends with it', function () {
     $this->artisan('ldd:make:bounded-context', ['name' => 'NestedScaffoldFixture'])->assertSuccessful();
 

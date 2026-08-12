@@ -2,6 +2,7 @@
 
 namespace App\IdentityAndAccess\Users\Domain;
 
+use App\IdentityAndAccess\Users\Domain\Events\UserCreated;
 use App\IdentityAndAccess\Users\Domain\Events\UserDeleted;
 use App\IdentityAndAccess\Users\Domain\Events\UserEmailUpdated;
 use App\IdentityAndAccess\Users\Domain\Events\UserNameUpdated;
@@ -9,9 +10,11 @@ use App\IdentityAndAccess\Users\Infrastructure\Persistence\UserFactory;
 use App\Shared\Domain\HasDomainEvents;
 use App\Shared\Domain\HasProfilePhoto;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
@@ -35,8 +38,31 @@ class User extends Authenticatable implements MustVerifyEmail
     use HasDomainEvents;
     use HasFactory;
     use HasProfilePhoto;
+    use HasUuids;
     use Notifiable;
     use TwoFactorAuthenticatable;
+
+    /**
+     * Creates a new User and registers the UserCreated domain event.
+     *
+     * The identifier is assigned up front so the event can carry it before
+     * the aggregate is persisted. A caller may supply its own id — it is set
+     * explicitly rather than through $fillable, so mass assignment is never
+     * a way to choose an identifier.
+     *
+     * Publishing the registered events is the application layer's job, see
+     * CreateUser.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public static function new(array $attributes = []): self
+    {
+        $user = new self(Arr::except($attributes, ['id']));
+        $user->id = $attributes['id'] ?? $user->newUniqueId();
+        $user->registerDomainEvent(UserCreated::new($user->id));
+
+        return $user;
+    }
 
     /**
      * The attributes that are mass assignable.
@@ -95,7 +121,7 @@ class User extends Authenticatable implements MustVerifyEmail
                 'name' => $name,
             ]);
 
-            $this->registerDomainEvent(UserNameUpdated::new((string) $this->id));
+            $this->registerDomainEvent(UserNameUpdated::new($this->id));
         }
 
         return $this;
@@ -109,7 +135,7 @@ class User extends Authenticatable implements MustVerifyEmail
                 'email_verified_at' => null,
             ]);
 
-            $this->registerDomainEvent(UserEmailUpdated::new((string) $this->id));
+            $this->registerDomainEvent(UserEmailUpdated::new($this->id));
         }
 
         return $this;
@@ -127,7 +153,7 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function toBeDeleted(): self
     {
-        $this->registerDomainEvent(UserDeleted::new((string) $this->id));
+        $this->registerDomainEvent(UserDeleted::new($this->id));
 
         return $this;
     }

@@ -109,6 +109,26 @@ For development with HMR, queue worker, and log tailing:
 composer dev
 ```
 
+## 🛠️ Scaffolding
+
+Creating a bounded context by hand means a directory, a service provider and an entry in
+`bootstrap/providers.php`, all of which have to match the conventions the architecture tests enforce.
+There is a command for that:
+
+```bash
+./vendor/bin/sail artisan ldd:make:bounded-context Billing
+```
+
+Routes live inside each context rather than in the central `routes/web.php`, so ask for the files you
+need and the provider will declare them for you:
+
+```bash
+./vendor/bin/sail artisan ldd:make:bounded-context Billing --web --api
+```
+
+No layer directories are created. A context earns its `Domain`, `Application` and `Infrastructure`
+one aggregate at a time — in real projects plenty of aggregates never need all three.
+
 ## 📁 Structure
 
 The structure of the `app/` directory in **Laravel Domain Driven** starter package is organized around different

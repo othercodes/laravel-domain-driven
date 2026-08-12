@@ -48,3 +48,17 @@ function something()
 {
     // ..
 }
+
+/**
+ * Whether a generated PHP file actually parses.
+ *
+ * The scaffolding commands rewrite service providers, and a malformed one is
+ * registered in bootstrap/providers.php: asserting on the file's contents
+ * would not notice that the application can no longer boot.
+ */
+function php_parses(string $path): bool
+{
+    exec('php -l '.escapeshellarg($path).' 2>&1', $output, $status);
+
+    return $status === 0;
+}

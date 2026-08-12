@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\{{ context }}\{{ plural }}\Infrastructure\Http\Controllers;
 
 use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
-use App\{{ context }}\{{ plural }}\Domain\Exceptions\{{ aggregate }}NotFound;
 use App\Shared\Infrastructure\Http\Controllers\InertiaController;
 use Illuminate\Http\Request;
 use Inertia\Response;
@@ -23,12 +22,12 @@ class {{ aggregate }}Controller extends InertiaController
 {
     public function __construct(private readonly {{ aggregate }}Repository $repository) {}
 
-    /**
-     * @throws {{ aggregate }}NotFound
-     */
     public function show(Request $request, string $id): Response
     {
-        ${{ variable }} = $this->repository->find($id) ?? throw new {{ aggregate }}NotFound($id);
+        // abort() rather than the domain's NotFound: mapping a domain
+        // exception to a status code is the HTTP layer's job, and an
+        // unhandled one would answer 500 to an ordinary missing record.
+        ${{ variable }} = $this->repository->find($id) ?? abort(404);
 
         return $this->render($request, '{{ plural }}/Show', [
             '{{ variable }}' => ${{ variable }},

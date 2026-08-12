@@ -129,6 +129,92 @@ test('it refuses names that are not valid PHP identifiers', function () {
         ->not->toContain('2024');
 });
 
+test('it refuses PHP reserved words as aggregate names', function () {
+    foreach (['Case', 'Match', 'List'] as $reserved) {
+        $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => $reserved])
+            ->assertFailed();
+    }
+
+    expect(app_path('ScaffoldFixture/Cases'))->not->toBeDirectory();
+});
+
+test('it takes the aggregate name as written', function () {
+    // Singularising unconditionally turns Analysis into Analysi.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Analysis'])
+        ->assertSuccessful();
+
+    expect(app_path('ScaffoldFixture/Analyses/Domain/Analysis.php'))->toBeFile();
+});
+
+test('it wires a provider whose array holds only a comment', function () {
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    File::put($provider, str_replace(
+        'public array $bindings = [];',
+        'public array $bindings = [/* add bindings here */];',
+        File::get($provider)
+    ));
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
+        ->assertSuccessful();
+
+    // A comment is not an element: emitting it as one produces `[,` and a
+    // provider that does not parse, while the command reports success.
+    expect(php_parses($provider))->toBeTrue();
+});
+
+test('it does not duplicate imports when the provider has several groups', function () {
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    File::put($provider, str_replace(
+        'use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;',
+        "use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;\n\n// the developer's own group\nuse Illuminate\Support\Str;",
+        File::get($provider)
+    ));
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
+        ->assertSuccessful();
+
+    expect(substr_count(File::get($provider), 'use Illuminate\Support\Str;'))->toBe(1)
+        ->and(php_parses($provider))->toBeTrue();
+});
+
+test('it refuses a table another context already creates', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true])
+        ->assertSuccessful();
+
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldOther'])->assertSuccessful();
+
+    // Both would Schema::create('widgets') and abort migrate on a fresh database.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldOther', 'name' => 'Widget', '--migration' => true])
+        ->assertFailed();
+
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldOther', 'name' => 'Widget', '--migration' => true, '--table' => 'other_widgets',
+    ])->assertSuccessful();
+
+    File::deleteDirectory(app_path('ScaffoldOther'));
+});
+
+test('it does not bind twice when the provider was reformatted', function () {
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
+
+    File::put($provider, str_replace(
+        '        WidgetRepository::class => EloquentWidgetRepository::class,',
+        '            WidgetRepository::class   => EloquentWidgetRepository::class,',
+        File::get($provider)
+    ));
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--force' => true])
+        ->assertSuccessful();
+
+    // EloquentWidgetRepository::class contains WidgetRepository::class, so
+    // count the mapping rather than the bare class reference.
+    expect(substr_count(File::get($provider), '=> EloquentWidgetRepository::class'))->toBe(1);
+});
+
 test('it refuses to scaffold into the Shared foundation layer', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'Shared', 'name' => 'Widget'])
         ->assertFailed();
@@ -164,8 +250,8 @@ test('it wires a provider whose arrays are declared inline', function () {
         ->toContain('WidgetRepository::class => EloquentWidgetRepository::class,');
 });
 
-test('it pluralises the aggregate directory and singularises the class', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'widgets'])
+test('it pluralises the aggregate directory and studlies the class', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'widget'])
         ->assertSuccessful();
 
     expect(app_path('ScaffoldFixture/Widgets/Domain/Widget.php'))->toBeFile();

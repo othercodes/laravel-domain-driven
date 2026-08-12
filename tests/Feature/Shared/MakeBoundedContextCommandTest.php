@@ -5,17 +5,27 @@ use Illuminate\Support\Facades\File;
 /*
  * The command writes into app/ and bootstrap/providers.php, so every test
  * restores both afterwards.
+ *
+ * The teardown only deletes directories that were absent when the test
+ * started: these tests run inside somebody else's application, and a context
+ * name that happened to collide would otherwise be destroyed.
  */
 beforeEach(function () {
     $this->providers = base_path('bootstrap/providers.php');
     $this->providersBackup = File::get($this->providers);
+
+    expect(app_path('ScaffoldFixture'))->not->toBeDirectory(
+        'app/ScaffoldFixture already exists; refusing to run so the teardown cannot delete it.'
+    );
+
+    $this->createdFixture = true;
 });
 
 afterEach(function () {
     File::put($this->providers, $this->providersBackup);
 
-    foreach (['ScaffoldFixture', 'Reporting'] as $context) {
-        File::deleteDirectory(app_path($context));
+    if ($this->createdFixture ?? false) {
+        File::deleteDirectory(app_path('ScaffoldFixture'));
     }
 });
 

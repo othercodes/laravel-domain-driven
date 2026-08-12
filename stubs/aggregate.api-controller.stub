@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\{{ context }}\{{ plural }}\Infrastructure\Http\Controllers\API;
 
 use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
-use App\{{ context }}\{{ plural }}\Domain\Exceptions\{{ aggregate }}NotFound;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -18,13 +17,10 @@ class {{ aggregate }}Controller
 {
     public function __construct(private readonly {{ aggregate }}Repository $repository) {}
 
-    /**
-     * @throws {{ aggregate }}NotFound
-     */
     public function show(string $id): JsonResponse
     {
-        return new JsonResponse(
-            $this->repository->find($id) ?? throw new {{ aggregate }}NotFound($id)
-        );
+        // abort() rather than the domain's NotFound: an unhandled domain
+        // exception would answer 500 to an ordinary missing record.
+        return new JsonResponse($this->repository->find($id) ?? abort(404));
     }
 }

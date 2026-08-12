@@ -30,6 +30,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         {--web : Add an Inertia controller}
         {--api : Add an API controller}
         {--all : Everything above}
+        {--table= : Table name, defaults to the pluralised aggregate}
         {--force : Overwrite files that already exist}';
 
     protected $description = 'Create an aggregate inside a bounded context';
@@ -47,7 +48,10 @@ final class MakeAggregateCommand extends ScaffoldCommand
     public function handle(): int
     {
         $context = $this->identifier((string) $this->argument('context'), 'bounded context');
-        $aggregate = $this->identifier(Str::singular((string) $this->argument('name')), 'aggregate');
+
+        // The name is taken as written. Singularising it turns Analysis into
+        // Analysi, and no heuristic tells that apart from a real plural.
+        $aggregate = $this->identifier((string) $this->argument('name'), 'aggregate');
 
         if ($context === null || $aggregate === null) {
             return self::FAILURE;
@@ -57,7 +61,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $this->aggregate = $aggregate;
         $this->plural = Str::plural($this->aggregate);
         $this->variable = Str::camel($this->aggregate);
-        $this->table = Str::snake($this->plural);
+        $this->table = (string) ($this->option('table') ?: Str::snake($this->plural));
 
         if ($this->context === self::SHARED_CONTEXT) {
             $this->components->error('[Shared] is the foundation layer, not a bounded context that can own aggregates.');
@@ -84,16 +88,30 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        $this->writeCore($path);
+        if ($this->wants('migration') && ($owner = $this->tableOwnedElsewhere()) !== null) {
+            $this->components->error("Table [{$this->table}] already has a create migration in [{$owner}].");
+            $this->components->bulletList([
+                "Pass a different name with: --table={$this->context}_{$this->table}",
+            ]);
+
+            return self::FAILURE;
+        }
+
+        if (! $this->writeCore($path)) {
+            return self::FAILURE;
+        }
+
         $this->writeOptional($path);
-        $this->wireProvider();
+        $wired = $this->wireProvider();
 
         $this->newLine();
         $this->components->info("Aggregate [{$this->aggregate}] created in [{$this->context}].");
 
         $this->printRouteHints();
 
-        return self::SUCCESS;
+        // The files exist but the context does not know about them, so a
+        // script chaining on this command must not treat it as done.
+        return $wired ? self::SUCCESS : self::FAILURE;
     }
 
     /**
@@ -120,12 +138,34 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
     }
 
+    /**
+     * Reusing an aggregate name across contexts is normal in DDD, but the
+     * table name is global: two create migrations for the same table abort
+     * `migrate` on a fresh database. Returns the context that already owns it.
+     */
+    private function tableOwnedElsewhere(): ?string
+    {
+        $mine = app_path("{$this->context}/{$this->plural}/Infrastructure/Persistence/Migrations");
+
+        foreach ($this->files->glob(app_path('*/*/Infrastructure/Persistence/Migrations')) ?: [] as $dir) {
+            if ($dir === $mine) {
+                continue;
+            }
+
+            if (($this->files->glob("{$dir}/*_create_{$this->table}_table.php") ?: []) !== []) {
+                return $this->relative($dir);
+            }
+        }
+
+        return null;
+    }
+
     private function wants(string $option): bool
     {
         return (bool) ($this->option($option) || $this->option('all'));
     }
 
-    private function writeCore(string $path): void
+    private function writeCore(string $path): bool
     {
         $uses = [];
 
@@ -153,7 +193,17 @@ final class MakeAggregateCommand extends ScaffoldCommand
         ]));
 
         foreach ($uses as $class) {
-            $model = $this->withImport($model, $class);
+            $imported = $this->withImport($model, $class);
+
+            // stubs/ is meant to be edited, so a stub with no namespace line
+            // is reachable. Say so rather than dying on a TypeError.
+            if ($imported === null) {
+                $this->components->error("Could not add [{$class}] to the model: stubs/aggregate.model.stub needs a namespace declaration.");
+
+                return false;
+            }
+
+            $model = $imported;
         }
 
         $this->put("{$path}/Domain/{$this->aggregate}.php", $model);
@@ -162,6 +212,8 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $this->put("{$path}/Domain/Exceptions/{$this->aggregate}Exception.php", $this->stub('aggregate.exception', $this->replacements()));
         $this->put("{$path}/Domain/Exceptions/{$this->aggregate}NotFound.php", $this->stub('aggregate.not-found', $this->replacements()));
         $this->put("{$path}/Infrastructure/Persistence/Eloquent{$this->aggregate}Repository.php", $this->stub('aggregate.eloquent-repository', $this->replacements()));
+
+        return true;
     }
 
     private function writeOptional(string $path): void
@@ -206,15 +258,9 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * path. Without this the aggregate would resolve nothing and its tables
      * would never be created — silently, in both cases.
      */
-    private function wireProvider(): void
+    private function wireProvider(): bool
     {
         $file = app_path("{$this->context}/{$this->context}ServiceProvider.php");
-
-        if (! $this->files->exists($file)) {
-            $this->components->twoColumnDetail($this->relative($file), '<fg=yellow>missing, not wired</>');
-
-            return;
-        }
 
         $contract = "App\\{$this->context}\\{$this->plural}\\Domain\\Contracts\\{$this->aggregate}Repository";
         $eloquent = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\Eloquent{$this->aggregate}Repository";
@@ -222,7 +268,15 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         $contents = $this->files->get($file);
 
-        if (! str_contains($contents, $binding)) {
+        // Matching the generated line verbatim would miss a reformatted or
+        // re-indented provider and append the binding a second time, silently
+        // overriding whatever the first one pointed at.
+        $alreadyBound = preg_match(
+            '/\b'.preg_quote("{$this->aggregate}Repository", '/').'::class\s*=>/',
+            $contents
+        ) === 1;
+
+        if (! $alreadyBound) {
             $contents = $this->withImport($contents, $contract);
             $contents = $contents === null ? null : $this->withImport($contents, $eloquent);
             $contents = $contents === null ? null : $this->appendToArray($contents, 'bindings', $binding);
@@ -243,11 +297,13 @@ final class MakeAggregateCommand extends ScaffoldCommand
             $this->components->twoColumnDetail($this->relative($file), '<fg=red>could not be wired</>');
             $this->components->warn("Add the binding and, if generated, the migration path to {$this->context}ServiceProvider by hand.");
 
-            return;
+            return false;
         }
 
         $this->files->put($file, $contents);
         $this->components->twoColumnDetail($this->relative($file), '<fg=green>wired</>');
+
+        return true;
     }
 
     /**
@@ -280,8 +336,22 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         // Declared inline, e.g. `public array $bindings = [Foo::class => Bar::class];`
         $inline = preg_replace_callback(
-            '/array \$'.preg_quote($property, '/').' = \[(.+?)\];/s',
-            fn (array $m): string => "array \${$property} = [\n        ".trim($m[1], " \n").(str_ends_with(trim($m[1]), ',') ? '' : ',')."\n{$entry}\n    ];",
+            '/array \$'.preg_quote($property, '/').' = \[(.*?)\];/s',
+            function (array $m) use ($property, $entry): string {
+                $body = $m[1];
+
+                // A body that is only whitespace or comments holds no elements:
+                // emitting it as one produces `[,` and a parse error.
+                $hasElements = trim((string) preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $body)) !== '';
+
+                if (! $hasElements) {
+                    return "array \${$property} = [".rtrim($body)."\n{$entry}\n    ];";
+                }
+
+                $existing = rtrim(trim($body), ',');
+
+                return "array \${$property} = [\n        {$existing},\n{$entry}\n    ];";
+            },
             $contents,
             1,
             $count

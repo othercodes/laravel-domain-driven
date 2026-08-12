@@ -24,6 +24,25 @@ abstract class ScaffoldCommand extends Command
      */
     protected const SHARED_CONTEXT = 'Shared';
 
+    /**
+     * Words PHP will not accept as a class name. A plain character-class
+     * check lets `Case`, `Match` and `List` through, and those are ordinary
+     * domain nouns that would generate a file which does not parse.
+     *
+     * @var list<string>
+     */
+    private const RESERVED = [
+        'abstract', 'and', 'array', 'as', 'bool', 'break', 'callable', 'case', 'catch', 'class',
+        'clone', 'const', 'continue', 'declare', 'default', 'die', 'do', 'echo', 'else', 'elseif',
+        'empty', 'enddeclare', 'endfor', 'endforeach', 'endif', 'endswitch', 'endwhile', 'enum',
+        'eval', 'exit', 'extends', 'false', 'final', 'finally', 'float', 'fn', 'for', 'foreach',
+        'function', 'global', 'goto', 'if', 'implements', 'include', 'include_once', 'instanceof',
+        'insteadof', 'int', 'interface', 'isset', 'iterable', 'list', 'match', 'mixed', 'namespace',
+        'never', 'new', 'null', 'object', 'or', 'parent', 'print', 'private', 'protected', 'public',
+        'readonly', 'require', 'require_once', 'return', 'self', 'static', 'string', 'switch',
+        'throw', 'trait', 'true', 'try', 'unset', 'use', 'var', 'void', 'while', 'xor', 'yield',
+    ];
+
     public function __construct(protected readonly Filesystem $files)
     {
         parent::__construct();
@@ -40,6 +59,12 @@ abstract class ScaffoldCommand extends Command
 
         if (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $studly)) {
             $this->components->error("The {$label} name must be a valid PHP identifier, [{$value}] is not.");
+
+            return null;
+        }
+
+        if (in_array(strtolower($studly), self::RESERVED, true)) {
+            $this->components->error("[{$studly}] is a PHP reserved word and cannot be used as a class name.");
 
             return null;
         }
@@ -109,7 +134,27 @@ abstract class ScaffoldCommand extends Command
         // preg_replace would read backslash sequences in the replacement as
         // backreferences, silently mangling namespaces such as \20.
         if ($matches[1] !== []) {
-            return preg_replace_callback('/^use .+;\n(use .+;\n)*/m', fn (): string => $block, $contents, 1);
+            // Every `use` line is collected above, so every one of them has to
+            // go: rewriting only the first contiguous run left the imports of
+            // any later group duplicated, and duplicate imports are fatal.
+            $written = false;
+
+            $result = preg_replace_callback(
+                '/^use .+;\n/m',
+                function () use ($block, &$written): string {
+                    if ($written) {
+                        return '';
+                    }
+
+                    $written = true;
+
+                    return $block;
+                },
+                $contents
+            );
+
+            // Collapse the blank lines left where a later group used to be.
+            return preg_replace("/\n{3,}/", "\n\n", (string) $result);
         }
 
         // No imports yet: open a block after the namespace declaration, or

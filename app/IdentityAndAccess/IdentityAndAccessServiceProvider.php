@@ -40,6 +40,11 @@ class IdentityAndAccessServiceProvider extends BoundedContextServiceProvider
         __DIR__.'/APITokens/Infrastructure/Persistence/Migrations',
     ];
 
+    protected array $routes = [
+        'web' => [__DIR__.'/Shared/Infrastructure/Http/Routes/web.php'],
+        'api' => [__DIR__.'/Shared/Infrastructure/Http/Routes/api.php'],
+    ];
+
     public function boot(): void
     {
         parent::boot();

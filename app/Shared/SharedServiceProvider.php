@@ -27,6 +27,10 @@ class SharedServiceProvider extends BoundedContextServiceProvider
         __DIR__.'/Infrastructure/Persistence/Migrations',
     ];
 
+    protected array $routes = [
+        'web' => [__DIR__.'/Infrastructure/Http/Routes/web.php'],
+    ];
+
     public function boot(): void
     {
         parent::boot();

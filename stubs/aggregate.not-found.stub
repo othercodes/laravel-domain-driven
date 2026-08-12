@@ -6,7 +6,5 @@ namespace App\{{ context }}\{{ plural }}\Domain\Exceptions;
 
 /**
  * Class {{ aggregate }}NotFound
- *
- * @author {{ author }}
  */
 class {{ aggregate }}NotFound extends {{ aggregate }}Exception {}

@@ -9,8 +9,6 @@ use ComplexHeart\Domain\Events\IsDomainEvent;
 
 /**
  * Class {{ aggregate }}Created
- *
- * @author {{ author }}
  */
 final class {{ aggregate }}Created implements Event
 {

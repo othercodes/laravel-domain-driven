@@ -5,19 +5,26 @@ declare(strict_types=1);
 namespace App\{{ context }}\{{ plural }}\Infrastructure\Http\Controllers\API;
 
 use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
+use App\{{ context }}\{{ plural }}\Domain\Exceptions\{{ aggregate }}NotFound;
 use Illuminate\Http\JsonResponse;
 
 /**
  * Class {{ aggregate }}Controller
  *
- * @author {{ author }}
+ * A listing action is deliberately not scaffolded: the repository's match()
+ * returns every row, so decide how to bound it before adding one.
  */
 class {{ aggregate }}Controller
 {
     public function __construct(private readonly {{ aggregate }}Repository $repository) {}
 
-    public function index(): JsonResponse
+    /**
+     * @throws {{ aggregate }}NotFound
+     */
+    public function show(string $id): JsonResponse
     {
-        return new JsonResponse($this->repository->match([]));
+        return new JsonResponse(
+            $this->repository->find($id) ?? throw new {{ aggregate }}NotFound($id)
+        );
     }
 }

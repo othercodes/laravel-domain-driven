@@ -10,8 +10,6 @@ use Illuminate\Support\Collection;
 
 /**
  * Class Eloquent{{ aggregate }}Repository
- *
- * @author {{ author }}
  */
 class Eloquent{{ aggregate }}Repository implements {{ aggregate }}Repository
 {

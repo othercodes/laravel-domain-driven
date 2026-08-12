@@ -8,8 +8,6 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * Class Store{{ aggregate }}Request
- *
- * @author {{ author }}
  */
 class Store{{ aggregate }}Request extends FormRequest
 {

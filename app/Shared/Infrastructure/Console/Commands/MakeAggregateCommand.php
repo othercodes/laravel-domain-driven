@@ -46,13 +46,28 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
     public function handle(): int
     {
-        $this->context = Str::studly((string) $this->argument('context'));
-        $this->aggregate = Str::studly(Str::singular((string) $this->argument('name')));
+        $context = $this->identifier((string) $this->argument('context'), 'bounded context');
+        $aggregate = $this->identifier(Str::singular((string) $this->argument('name')), 'aggregate');
+
+        if ($context === null || $aggregate === null) {
+            return self::FAILURE;
+        }
+
+        $this->context = $context;
+        $this->aggregate = $aggregate;
         $this->plural = Str::plural($this->aggregate);
         $this->variable = Str::camel($this->aggregate);
         $this->table = Str::snake($this->plural);
 
-        if (! $this->files->isDirectory(app_path($this->context))) {
+        if ($this->context === self::SHARED_CONTEXT) {
+            $this->components->error('[Shared] is the foundation layer, not a bounded context that can own aggregates.');
+
+            return self::FAILURE;
+        }
+
+        // A directory alone is not a context: it also has to be wired by a
+        // provider named after it, which is what this command edits.
+        if (! $this->files->exists(app_path("{$this->context}/{$this->context}ServiceProvider.php"))) {
             $this->components->error("The bounded context [{$this->context}] does not exist.");
             $this->components->bulletList([
                 "Create it with: php artisan ldd:make:bounded-context {$this->context}",
@@ -94,14 +109,14 @@ final class MakeAggregateCommand extends ScaffoldCommand
         if ($this->wants('web')) {
             $this->newLine();
             $this->line("  Add to <options=bold>{$this->relative($routes)}/web.php</>:");
-            $this->line("  <fg=gray>Route::get('/{$slug}', [{$this->aggregate}Controller::class, 'index'])->name('{$slug}.index');</>");
-            $this->line("  and create the page at <options=bold>resources/templates/tailwindcss/js/Pages/{$this->plural}/Index.vue</>");
+            $this->line("  <fg=gray>Route::get('/{$slug}/{id}', [{$this->aggregate}Controller::class, 'show'])->name('{$slug}.show');</>");
+            $this->line("  and create the page at <options=bold>resources/templates/tailwindcss/js/Pages/{$this->plural}/Show.vue</>");
         }
 
         if ($this->wants('api')) {
             $this->newLine();
             $this->line("  Add to <options=bold>{$this->relative($routes)}/api.php</>:");
-            $this->line("  <fg=gray>Route::get('/{$slug}', [{$this->aggregate}Controller::class, 'index'])->name('{$slug}.index');</>");
+            $this->line("  <fg=gray>Route::get('/{$slug}/{id}', [{$this->aggregate}Controller::class, 'show'])->name('{$slug}.show');</>");
         }
     }
 
@@ -160,8 +175,17 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
 
         if ($this->wants('migration')) {
-            $name = date('Y_m_d_His')."_create_{$this->table}_table.php";
-            $this->put("{$path}/Infrastructure/Persistence/Migrations/{$name}", $this->stub('aggregate.migration', $this->replacements()));
+            $dir = "{$path}/Infrastructure/Persistence/Migrations";
+
+            // The filename carries a timestamp, so regenerating would drop a
+            // second create-table migration beside the first and break
+            // `migrate` with "table already exists". Reuse the existing one.
+            $existing = $this->files->glob("{$dir}/*_create_{$this->table}_table.php") ?: [];
+
+            $this->put(
+                $existing[0] ?? "{$dir}/".date('Y_m_d_His')."_create_{$this->table}_table.php",
+                $this->stub('aggregate.migration', $this->replacements())
+            );
         }
 
         if ($this->wants('requests')) {
@@ -199,11 +223,12 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $contents = $this->files->get($file);
 
         if (! str_contains($contents, $binding)) {
-            $contents = $this->withImport($this->withImport($contents, $contract), $eloquent);
-            $contents = $this->appendToArray($contents, 'bindings', $binding);
+            $contents = $this->withImport($contents, $contract);
+            $contents = $contents === null ? null : $this->withImport($contents, $eloquent);
+            $contents = $contents === null ? null : $this->appendToArray($contents, 'bindings', $binding);
         }
 
-        if ($this->wants('migration')) {
+        if ($contents !== null && $this->wants('migration')) {
             $entry = "        __DIR__.'/{$this->plural}/Infrastructure/Persistence/Migrations',";
 
             if (! str_contains($contents, $entry)) {
@@ -211,15 +236,28 @@ final class MakeAggregateCommand extends ScaffoldCommand
             }
         }
 
+        // Reporting a green "wired" after a rewrite that matched nothing is
+        // how an unbound contract and an unregistered migration path reach
+        // production unnoticed. Say so instead.
+        if ($contents === null) {
+            $this->components->twoColumnDetail($this->relative($file), '<fg=red>could not be wired</>');
+            $this->components->warn("Add the binding and, if generated, the migration path to {$this->context}ServiceProvider by hand.");
+
+            return;
+        }
+
         $this->files->put($file, $contents);
         $this->components->twoColumnDetail($this->relative($file), '<fg=green>wired</>');
     }
 
     /**
-     * Appends an entry to a declared property array, whether it is currently
-     * empty or already populated.
+     * Appends an entry to a declared property array, whatever shape it is
+     * currently written in.
+     *
+     * Returns null when the property cannot be found, so the caller can
+     * report a failure rather than silently rewriting the file unchanged.
      */
-    private function appendToArray(string $contents, string $property, string $entry): string
+    private function appendToArray(string $contents, string $property, string $entry): ?string
     {
         $empty = "array \${$property} = [];";
 
@@ -227,12 +265,29 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return str_replace($empty, "array \${$property} = [\n{$entry}\n    ];", $contents);
         }
 
-        return (string) preg_replace(
-            '/(array \$'.$property.' = \[\n)(.*?)(    \];)/s',
-            "$1$2{$entry}\n$3",
+        // Already populated and spread over several lines.
+        $multiline = preg_replace_callback(
+            '/(array \$'.preg_quote($property, '/').' = \[\n)(.*?)(^    \];)/ms',
+            fn (array $m): string => $m[1].$m[2].$entry."\n".$m[3],
             $contents,
-            1
+            1,
+            $count
         );
+
+        if ($count > 0) {
+            return $multiline;
+        }
+
+        // Declared inline, e.g. `public array $bindings = [Foo::class => Bar::class];`
+        $inline = preg_replace_callback(
+            '/array \$'.preg_quote($property, '/').' = \[(.+?)\];/s',
+            fn (array $m): string => "array \${$property} = [\n        ".trim($m[1], " \n").(str_ends_with(trim($m[1]), ',') ? '' : ',')."\n{$entry}\n    ];",
+            $contents,
+            1,
+            $count
+        );
+
+        return $count > 0 ? $inline : null;
     }
 
     /**
@@ -248,7 +303,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
             '{{ variable }}' => $this->variable,
             '{{ pluralVariable }}' => Str::camel($this->plural),
             '{{ table }}' => $this->table,
-            '{{ author }}' => config('app.scaffold_author', 'Unay Santisteban <usantisteban@othercode.io>'),
         ], $extra);
     }
 }

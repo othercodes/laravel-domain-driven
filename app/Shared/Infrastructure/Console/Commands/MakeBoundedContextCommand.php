@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
-use Illuminate\Support\Str;
-
 /**
  * Class MakeBoundedContextCommand
  *
@@ -30,16 +28,16 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
 
     public function handle(): int
     {
-        $context = Str::studly((string) $this->argument('name'));
+        $context = $this->identifier((string) $this->argument('name'), 'bounded context');
 
-        if ($context === '') {
-            $this->components->error('The bounded context name cannot be empty.');
-
+        if ($context === null) {
             return self::FAILURE;
         }
 
-        if ($context !== $this->argument('name')) {
-            $this->components->info("Using [{$context}] as the context name.");
+        if ($context === self::SHARED_CONTEXT) {
+            $this->components->error('[Shared] already exists as the application foundation layer.');
+
+            return self::FAILURE;
         }
 
         $path = app_path($context);
@@ -141,10 +139,21 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
             return;
         }
 
+        $imported = $this->withImport($contents, $class);
+
+        // Appending the short class name without its import would leave an
+        // unqualified reference and a fatal on the next boot.
+        if ($imported === null) {
+            $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=red>could not be updated</>');
+            $this->components->warn("Register {$class} by hand.");
+
+            return;
+        }
+
         $contents = str_replace(
             "\n];",
             "\n    {$context}ServiceProvider::class,\n];",
-            $this->withImport($contents, $class)
+            $imported
         );
 
         $this->files->put($file, $contents);

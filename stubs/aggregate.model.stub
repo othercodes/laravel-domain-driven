@@ -11,8 +11,6 @@ use Illuminate\Support\Arr;
  * Class {{ aggregate }}
  *
  * @property string $id
- *
- * @author {{ author }}
  */
 class {{ aggregate }} extends Model
 {

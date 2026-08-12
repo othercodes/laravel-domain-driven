@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\{{ context }}\{{ plural }}\Infrastructure\Http\Controllers;
 
 use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
+use App\{{ context }}\{{ plural }}\Domain\Exceptions\{{ aggregate }}NotFound;
 use App\Shared\Infrastructure\Http\Controllers\InertiaController;
 use Illuminate\Http\Request;
 use Inertia\Response;
@@ -15,16 +16,22 @@ use Inertia\Response;
  * Renders through InertiaController::render() rather than Inertia::render(),
  * so the page goes through the rendering callbacks the base class exposes.
  *
- * @author {{ author }}
+ * A listing action is deliberately not scaffolded: the repository's match()
+ * returns every row, so decide how to bound it before adding one.
  */
 class {{ aggregate }}Controller extends InertiaController
 {
     public function __construct(private readonly {{ aggregate }}Repository $repository) {}
 
-    public function index(Request $request): Response
+    /**
+     * @throws {{ aggregate }}NotFound
+     */
+    public function show(Request $request, string $id): Response
     {
-        return $this->render($request, '{{ plural }}/Index', [
-            '{{ pluralVariable }}' => $this->repository->match([]),
+        ${{ variable }} = $this->repository->find($id) ?? throw new {{ aggregate }}NotFound($id);
+
+        return $this->render($request, '{{ plural }}/Show', [
+            '{{ variable }}' => ${{ variable }},
         ]);
     }
 }

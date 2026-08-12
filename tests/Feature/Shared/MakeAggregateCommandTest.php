@@ -14,9 +14,11 @@ beforeEach(function () {
     $this->providers = base_path('bootstrap/providers.php');
     $this->providersBackup = File::get($this->providers);
 
-    expect(app_path('ScaffoldFixture'))->not->toBeDirectory(
-        'app/ScaffoldFixture already exists; refusing to run so the teardown cannot delete it.'
-    );
+    foreach (['ScaffoldFixture', 'ScaffoldOther'] as $fixture) {
+        expect(app_path($fixture))->not->toBeDirectory(
+            "app/{$fixture} already exists; refusing to run so the teardown cannot delete it."
+        );
+    }
 
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
     $this->createdFixture = true;
@@ -25,8 +27,12 @@ beforeEach(function () {
 afterEach(function () {
     File::put($this->providers, $this->providersBackup);
 
+    // Both fixtures are removed here rather than in the test body: an
+    // assertion that fails leaves whatever the body had not reached yet, and
+    // a leaked context makes every later run of the suite fail too.
     if ($this->createdFixture ?? false) {
         File::deleteDirectory(app_path('ScaffoldFixture'));
+        File::deleteDirectory(app_path('ScaffoldOther'));
     }
 });
 
@@ -192,8 +198,16 @@ test('it refuses a table another context already creates', function () {
     $this->artisan('ldd:make:aggregate', [
         'context' => 'ScaffoldOther', 'name' => 'Widget', '--migration' => true, '--table' => 'other_widgets',
     ])->assertSuccessful();
+});
 
-    File::deleteDirectory(app_path('ScaffoldOther'));
+test('it refuses a table name that is not a valid identifier', function () {
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true, '--table' => "odd'name",
+    ])->assertFailed();
+
+    // The name reaches both the model's $table property and Schema::create(),
+    // so an unchecked quote ships two files that do not parse.
+    expect(app_path('ScaffoldFixture/Widgets'))->not->toBeDirectory();
 });
 
 test('it does not bind twice when the provider was reformatted', function () {
@@ -265,6 +279,42 @@ test('it refuses an unknown bounded context', function () {
 test('it refuses to overwrite an existing aggregate', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertFailed();
+});
+
+test('it hints a distinct route name for the api controller', function () {
+    // A route name is global: sharing one leaves route() resolving to
+    // whichever file was loaded first, with no error either way.
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true, '--api' => true,
+    ])
+        ->expectsOutputToContain("->name('widgets.show')")
+        ->expectsOutputToContain("->name('api.widgets.show')")
+        ->assertSuccessful();
+});
+
+test('it warns when the route file the hint points at does not exist', function () {
+    // The fixture context was created without --web, so following the hint
+    // literally yields a route file nothing loads and a silent 404.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true])
+        ->expectsOutputToContain('That file does not exist yet')
+        ->assertSuccessful();
+});
+
+test('everything it generates parses', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--all' => true])
+        ->assertSuccessful();
+
+    // The fixture is deleted in teardown, so CI's Pint, PHPStan and arch legs
+    // never see the generated code. Without this, a typo in any stub ships
+    // green: every other test asserts on substrings and file existence.
+    $files = File::allFiles(app_path('ScaffoldFixture'));
+
+    expect($files)->not->toBeEmpty();
+
+    foreach ($files as $file) {
+        expect(php_parses($file->getPathname()))
+            ->toBeTrue("{$file->getRelativePathname()} does not parse");
+    }
 });
 
 test('all generates every optional piece', function () {

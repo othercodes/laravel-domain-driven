@@ -14,9 +14,11 @@ beforeEach(function () {
     $this->providers = base_path('bootstrap/providers.php');
     $this->providersBackup = File::get($this->providers);
 
-    expect(app_path('ScaffoldFixture'))->not->toBeDirectory(
-        'app/ScaffoldFixture already exists; refusing to run so the teardown cannot delete it.'
-    );
+    foreach (['ScaffoldFixture', 'NestedScaffoldFixture'] as $fixture) {
+        expect(app_path($fixture))->not->toBeDirectory(
+            "app/{$fixture} already exists; refusing to run so the teardown cannot delete it."
+        );
+    }
 
     $this->createdFixture = true;
 });
@@ -24,8 +26,12 @@ beforeEach(function () {
 afterEach(function () {
     File::put($this->providers, $this->providersBackup);
 
+    // Removed here rather than in the test body: an assertion that fails
+    // leaves whatever the body had not reached yet, and a leaked context
+    // makes every later run of the suite fail too.
     if ($this->createdFixture ?? false) {
         File::deleteDirectory(app_path('ScaffoldFixture'));
+        File::deleteDirectory(app_path('NestedScaffoldFixture'));
     }
 });
 
@@ -92,6 +98,39 @@ test('it normalises the context name', function () {
     $this->artisan('ldd:make:bounded-context', ['name' => 'scaffold_fixture'])->assertSuccessful();
 
     expect(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php'))->toBeFile();
+});
+
+test('it registers the provider however the list is written', function () {
+    File::put($this->providers, "<?php\n\nreturn [App\Shared\SharedServiceProvider::class];\n");
+
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+
+    expect(File::get($this->providers))->toContain('ScaffoldFixtureServiceProvider::class,')
+        ->and(php_parses($this->providers))->toBeTrue();
+});
+
+test('it fails loudly when the provider list cannot be found', function () {
+    File::put($this->providers, "<?php\n\nreturn array(App\Shared\SharedServiceProvider::class);\n");
+
+    // Reporting success here leaves a context whose bindings, migrations and
+    // routes are never loaded, and a stale import would make every later run
+    // answer "already registered".
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertFailed();
+
+    expect(File::get($this->providers))->not->toContain('ScaffoldFixture');
+});
+
+test('a context is not mistaken for one whose name ends with it', function () {
+    $this->artisan('ldd:make:bounded-context', ['name' => 'NestedScaffoldFixture'])->assertSuccessful();
+
+    // NestedScaffoldFixtureServiceProvider::class contains
+    // ScaffoldFixtureServiceProvider::class, so a substring check would call
+    // this one already registered and never add it.
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+
+    expect(File::get($this->providers))
+        ->toContain("\n    ScaffoldFixtureServiceProvider::class,")
+        ->and(php_parses($this->providers))->toBeTrue();
 });
 
 test('registering an already known provider does not duplicate it', function () {

@@ -50,7 +50,7 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
 
         $this->writeProvider($context, $path);
         $this->writeRoutes($context, $path);
-        $this->registerProvider($context);
+        $registered = $this->registerProvider($context);
 
         $this->newLine();
         $this->components->info("Bounded context [{$context}] created.");
@@ -58,7 +58,9 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
             "Add aggregates with: php artisan ldd:make:aggregate {$context} <Aggregate>",
         ]);
 
-        return self::SUCCESS;
+        // The files exist but nothing loads them, so a script chaining on this
+        // command must not treat it as done.
+        return $registered ? self::SUCCESS : self::FAILURE;
     }
 
     private function writeProvider(string $context, string $path): void
@@ -127,36 +129,46 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
      * Adds the provider to bootstrap/providers.php, keeping the list sorted
      * the way the file already is.
      */
-    private function registerProvider(string $context): void
+    private function registerProvider(string $context): bool
     {
         $file = base_path('bootstrap/providers.php');
         $contents = $this->files->get($file);
         $class = "App\\{$context}\\{$context}ServiceProvider";
 
-        if (str_contains($contents, $class)) {
+        // Looking for the fully qualified name would also match the import
+        // this command adds, so a run that added the import but never reached
+        // the list would report itself as already registered for ever after.
+        // The lookbehind keeps Probe from matching SubProbeServiceProvider.
+        $registered = preg_match(
+            '/(?<![\w\\\\])'.preg_quote($context, '/').'ServiceProvider::class/',
+            $contents
+        ) === 1;
+
+        if ($registered) {
             $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=yellow>already registered</>');
 
-            return;
+            return true;
         }
 
         $imported = $this->withImport($contents, $class);
 
-        // Appending the short class name without its import would leave an
-        // unqualified reference and a fatal on the next boot.
-        if ($imported === null) {
-            $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=red>could not be updated</>');
-            $this->components->warn("Register {$class} by hand.");
+        $updated = $imported === null
+            ? null
+            : $this->appendToList($imported, 'return [', "    {$context}ServiceProvider::class,", '');
 
-            return;
+        // Appending the short name without its import leaves an unqualified
+        // reference, and adding the import without the entry leaves a context
+        // nothing ever loads. Both are silent, so neither may report green.
+        if ($updated === null) {
+            $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=red>could not be updated</>');
+            $this->components->warn("Register {$class} in bootstrap/providers.php by hand.");
+
+            return false;
         }
 
-        $contents = str_replace(
-            "\n];",
-            "\n    {$context}ServiceProvider::class,\n];",
-            $imported
-        );
-
-        $this->files->put($file, $contents);
+        $this->files->put($file, $updated);
         $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=green>updated</>');
+
+        return true;
     }
 }

@@ -169,4 +169,59 @@ abstract class ScaffoldCommand extends Command
 
         return null;
     }
+
+    /**
+     * Appends an entry to a list literal, whatever shape it is written in.
+     *
+     * $open is the literal that opens the list, e.g. `return [` or
+     * `array $bindings = [`, and $indent the indentation of its closing
+     * bracket.
+     *
+     * Returns null when the list cannot be found, so the caller reports a
+     * failure instead of writing the file back unchanged and calling it done.
+     */
+    protected function appendToList(string $contents, string $open, string $entry, string $indent = '    '): ?string
+    {
+        if (str_contains($contents, $open.'];')) {
+            return str_replace($open.'];', $open."\n{$entry}\n{$indent}];", $contents);
+        }
+
+        // Already populated and spread over several lines.
+        $multiline = preg_replace_callback(
+            '/('.preg_quote($open, '/').'\n)(.*?)(^'.preg_quote($indent, '/').'\];)/ms',
+            fn (array $m): string => $m[1].$m[2].$entry."\n".$m[3],
+            $contents,
+            1,
+            $count
+        );
+
+        if ($count > 0) {
+            return $multiline;
+        }
+
+        // Declared inline, e.g. `public array $bindings = [Foo::class => Bar::class];`
+        $inline = preg_replace_callback(
+            '/'.preg_quote($open, '/').'(.*?)\];/s',
+            function (array $m) use ($open, $entry, $indent): string {
+                $body = $m[1];
+
+                // A body that is only whitespace or comments holds no elements:
+                // emitting it as one produces `[,` and a parse error.
+                $hasElements = trim((string) preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $body)) !== '';
+
+                if (! $hasElements) {
+                    return $open.rtrim($body)."\n{$entry}\n{$indent}];";
+                }
+
+                $existing = rtrim(trim($body), ',');
+
+                return $open."\n{$indent}    {$existing},\n{$entry}\n{$indent}];";
+            },
+            $contents,
+            1,
+            $count
+        );
+
+        return $count > 0 ? $inline : null;
+    }
 }

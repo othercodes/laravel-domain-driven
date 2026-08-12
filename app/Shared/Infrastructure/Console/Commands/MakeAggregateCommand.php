@@ -63,6 +63,16 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $this->variable = Str::camel($this->aggregate);
         $this->table = (string) ($this->option('table') ?: Str::snake($this->plural));
 
+        // The table name is interpolated into the model's $table property and
+        // into Schema::create(), so a quote or a space in it produces two
+        // files that do not parse — and the migrations path is registered as a
+        // directory, which takes `migrate` down with it.
+        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $this->table) !== 1) {
+            $this->components->error("The table name must be a valid identifier, [{$this->table}] is not.");
+
+            return self::FAILURE;
+        }
+
         if ($this->context === self::SHARED_CONTEXT) {
             $this->components->error('[Shared] is the foundation layer, not a bounded context that can own aggregates.');
 
@@ -91,7 +101,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         if ($this->wants('migration') && ($owner = $this->tableOwnedElsewhere()) !== null) {
             $this->components->error("Table [{$this->table}] already has a create migration in [{$owner}].");
             $this->components->bulletList([
-                "Pass a different name with: --table={$this->context}_{$this->table}",
+                'Pass a different name with: --table='.Str::snake($this->context)."_{$this->table}",
             ]);
 
             return self::FAILURE;
@@ -121,20 +131,39 @@ final class MakeAggregateCommand extends ScaffoldCommand
      */
     private function printRouteHints(): void
     {
-        $routes = base_path("app/{$this->context}/Shared/Infrastructure/Http/Routes");
+        $dir = app_path("{$this->context}/Shared/Infrastructure/Http/Routes");
         $slug = Str::kebab($this->plural);
+
+        // A route name is global, so web and api cannot share one: Laravel
+        // keeps both routes but resolves route() to whichever was registered
+        // first, leaving the other unreachable by name.
+        foreach (['web' => '', 'api' => 'api.'] as $kind => $prefix) {
+            if (! $this->wants($kind)) {
+                continue;
+            }
+
+            $file = "{$dir}/{$kind}.php";
+
+            $this->newLine();
+            $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
+            $this->line("  <fg=gray>Route::get('/{$slug}/{id}', [{$this->aggregate}Controller::class, 'show'])->name('{$prefix}{$slug}.show');</>");
+
+            if ($kind === 'api') {
+                $this->line("  <fg=gray>// importing the {$this->aggregate}Controller under Http\\Controllers\\API</>");
+            }
+
+            // Both commands make route files opt in, so this one may well not
+            // exist. Creating it is not enough either: a route file the
+            // provider does not declare is never loaded, and the only symptom
+            // is a 404.
+            if (! $this->files->exists($file)) {
+                $this->line("  <fg=yellow>That file does not exist yet: create it and declare it in {$this->context}ServiceProvider::\$routes.</>");
+            }
+        }
 
         if ($this->wants('web')) {
             $this->newLine();
-            $this->line("  Add to <options=bold>{$this->relative($routes)}/web.php</>:");
-            $this->line("  <fg=gray>Route::get('/{$slug}/{id}', [{$this->aggregate}Controller::class, 'show'])->name('{$slug}.show');</>");
-            $this->line("  and create the page at <options=bold>resources/templates/tailwindcss/js/Pages/{$this->plural}/Show.vue</>");
-        }
-
-        if ($this->wants('api')) {
-            $this->newLine();
-            $this->line("  Add to <options=bold>{$this->relative($routes)}/api.php</>:");
-            $this->line("  <fg=gray>Route::get('/{$slug}/{id}', [{$this->aggregate}Controller::class, 'show'])->name('{$slug}.show');</>");
+            $this->line("  Create the page at <options=bold>resources/templates/tailwindcss/js/Pages/{$this->plural}/Show.vue</>");
         }
     }
 
@@ -306,58 +335,9 @@ final class MakeAggregateCommand extends ScaffoldCommand
         return true;
     }
 
-    /**
-     * Appends an entry to a declared property array, whatever shape it is
-     * currently written in.
-     *
-     * Returns null when the property cannot be found, so the caller can
-     * report a failure rather than silently rewriting the file unchanged.
-     */
     private function appendToArray(string $contents, string $property, string $entry): ?string
     {
-        $empty = "array \${$property} = [];";
-
-        if (str_contains($contents, $empty)) {
-            return str_replace($empty, "array \${$property} = [\n{$entry}\n    ];", $contents);
-        }
-
-        // Already populated and spread over several lines.
-        $multiline = preg_replace_callback(
-            '/(array \$'.preg_quote($property, '/').' = \[\n)(.*?)(^    \];)/ms',
-            fn (array $m): string => $m[1].$m[2].$entry."\n".$m[3],
-            $contents,
-            1,
-            $count
-        );
-
-        if ($count > 0) {
-            return $multiline;
-        }
-
-        // Declared inline, e.g. `public array $bindings = [Foo::class => Bar::class];`
-        $inline = preg_replace_callback(
-            '/array \$'.preg_quote($property, '/').' = \[(.*?)\];/s',
-            function (array $m) use ($property, $entry): string {
-                $body = $m[1];
-
-                // A body that is only whitespace or comments holds no elements:
-                // emitting it as one produces `[,` and a parse error.
-                $hasElements = trim((string) preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $body)) !== '';
-
-                if (! $hasElements) {
-                    return "array \${$property} = [".rtrim($body)."\n{$entry}\n    ];";
-                }
-
-                $existing = rtrim(trim($body), ',');
-
-                return "array \${$property} = [\n        {$existing},\n{$entry}\n    ];";
-            },
-            $contents,
-            1,
-            $count
-        );
-
-        return $count > 0 ? $inline : null;
+        return $this->appendToList($contents, "array \${$property} = [", $entry);
     }
 
     /**

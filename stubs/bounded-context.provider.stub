@@ -1,0 +1,29 @@
+<?php
+
+namespace App\{{ context }};
+
+use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;
+
+/**
+ * Class {{ context }}ServiceProvider
+ *
+ * Wires the {{ context }} bounded context. Everything is declared, not
+ * booted by hand: add repository bindings to $bindings, domain event
+ * listeners to $events, console commands to $commands, and one entry in
+ * $migrations per aggregate that owns a table.
+ */
+class {{ context }}ServiceProvider extends BoundedContextServiceProvider
+{
+    /** @var array<class-string, class-string> */
+    public array $bindings = [];
+
+    /** @var array<class-string, class-string> */
+    protected array $events = [];
+
+    /** @var array<int, class-string> */
+    protected array $commands = [];
+
+    /** @var array<int, string> */
+    protected array $migrations = [];
+{{ routes }}
+}

@@ -1,0 +1,15 @@
+<?php
+
+/*
+| API routes owned by the {{ context }} bounded context.
+|
+| Loaded by {{ context }}ServiceProvider through its $routes array. The api
+| middleware group is applied for you, but the URI prefix is not, so declare
+| it here:
+|
+|   use Illuminate\Support\Facades\Route;
+|
+|   Route::prefix('api')->middleware('auth:sanctum')->group(function () {
+|       Route::get('/example', ExampleController::class)->name('example');
+|   });
+*/

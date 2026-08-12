@@ -96,6 +96,21 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // the migration may already have been applied.
         $modelExisted = $this->files->exists("{$path}/Domain/{$this->aggregate}.php");
 
+        // The model is never rewritten, so a migration for a table it does not
+        // declare creates one nothing reads, next to the one it does use.
+        if ($this->wants('migration') && $modelExisted) {
+            $declared = $this->tableDeclaredIn("{$path}/Domain/{$this->aggregate}.php");
+
+            if ($declared !== null && $declared !== $this->table) {
+                $this->components->error("[{$this->aggregate}] declares table [{$declared}], not [{$this->table}].");
+                $this->components->bulletList([
+                    "Pass --table={$declared}, or change the model's \$table by hand first.",
+                ]);
+
+                return self::FAILURE;
+            }
+        }
+
         if ($this->wants('migration') && ($owner = $this->tableOwnedElsewhere()) !== null) {
             $this->components->error("Table [{$this->table}] already has a create migration in [{$owner}].");
             $this->components->bulletList([
@@ -115,7 +130,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $this->newLine();
         $this->components->info("Aggregate [{$this->aggregate}] ".($modelExisted ? 'updated' : 'created')." in [{$this->context}].");
 
-        $this->printModelHints($modelExisted);
+        $this->printModelHints($path, $modelExisted);
         $this->printRouteHints();
 
         // The files exist but the context does not know about them, so a
@@ -128,20 +143,24 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * rewritten once it exists. Adding either option later costs a line or
      * two by hand, which is the price of never losing what the model grew.
      */
-    private function printModelHints(bool $modelExisted): void
+    private function printModelHints(string $path, bool $modelExisted): void
     {
         if (! $modelExisted) {
             return;
         }
 
+        // What the model already carries decides this, not the flags: running
+        // the same command twice would otherwise advise redeclaring
+        // newFactory(), which is fatal, and registering the event twice.
+        $model = $this->files->get("{$path}/Domain/{$this->aggregate}.php");
         $lines = [];
 
-        if ($this->wants('events')) {
+        if ($this->wants('events') && ! str_contains($model, 'registerDomainEvent')) {
             $lines[] = "in new(): \${$this->variable}->registerDomainEvent({$this->aggregate}Created::new(\${$this->variable}->id));";
         }
 
-        if ($this->wants('factory')) {
-            $lines[] = 'use HasFactory;';
+        if ($this->wants('factory') && ! str_contains($model, 'newFactory')) {
+            $lines[] = 'use HasFactory; (imported from Illuminate\Database\Eloquent\Factories)';
             $lines[] = "protected static function newFactory(): {$this->aggregate}Factory { return {$this->aggregate}Factory::new(); }";
         }
 
@@ -214,6 +233,13 @@ final class MakeAggregateCommand extends ScaffoldCommand
             $this->newLine();
             $this->line("  Create the page at <options=bold>resources/templates/tailwindcss/js/Pages/{$this->plural}/Show.vue</>");
         }
+    }
+
+    private function tableDeclaredIn(string $model): ?string
+    {
+        return preg_match('/protected \$table = \'([^\']+)\';/', $this->files->get($model), $matches) === 1
+            ? $matches[1]
+            : null;
     }
 
     /**

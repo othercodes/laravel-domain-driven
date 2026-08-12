@@ -287,6 +287,31 @@ test('it refuses an unknown bounded context', function () {
         ->assertFailed();
 });
 
+test('re-running with the same flags advises nothing', function () {
+    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true, '--factory' => true];
+
+    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
+
+    // The model already carries both. Repeating the advice would redeclare
+    // newFactory(), which is fatal, and register the event a second time.
+    $this->artisan('ldd:make:aggregate', $args)
+        ->doesntExpectOutputToContain('Add to it by hand')
+        ->assertSuccessful();
+});
+
+test('it refuses a migration for a table the model does not declare', function () {
+    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true];
+
+    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
+
+    // The model keeps pointing at widgets, so this migration would create a
+    // second table that nothing reads.
+    $this->artisan('ldd:make:aggregate', $args + ['--table' => 'renamed'])->assertFailed();
+
+    expect(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*.php')))
+        ->toHaveCount(1);
+});
+
 test('re-running adds the missing piece without touching the model', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
 

@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Domain\Contracts;
+
+use App\{{ context }}\{{ plural }}\Domain\{{ aggregate }};
+use Illuminate\Support\Collection;
+
+interface {{ aggregate }}Repository
+{
+    public function find(string $id): ?{{ aggregate }};
+
+    /**
+     * @param  array<string, mixed>  $criteria
+     * @return Collection<int, {{ aggregate }}>
+     */
+    public function match(array $criteria): Collection;
+
+    public function save({{ aggregate }} ${{ variable }}): {{ aggregate }};
+
+    public function delete({{ aggregate }} ${{ variable }}): void;
+}

@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
-use Illuminate\Console\Command;
-use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Str;
 
 /**
@@ -20,7 +18,7 @@ use Illuminate\Support\Str;
  *
  * @author Unay Santisteban <usantisteban@othercode.io>
  */
-final class MakeBoundedContextCommand extends Command
+final class MakeBoundedContextCommand extends ScaffoldCommand
 {
     protected $signature = 'ldd:make:bounded-context
         {name : The bounded context name, e.g. VisaManagement}
@@ -29,11 +27,6 @@ final class MakeBoundedContextCommand extends Command
         {--force : Overwrite files that already exist}';
 
     protected $description = 'Create a bounded context with its service provider';
-
-    public function __construct(private readonly Filesystem $files)
-    {
-        parent::__construct();
-    }
 
     public function handle(): int
     {
@@ -74,7 +67,8 @@ final class MakeBoundedContextCommand extends Command
     {
         $this->put(
             $path."/{$context}ServiceProvider.php",
-            $this->stub('bounded-context.provider', $context, [
+            $this->stub('bounded-context.provider', [
+                '{{ context }}' => $context,
                 '{{ routes }}' => $this->routesProperty($context),
             ])
         );
@@ -89,7 +83,7 @@ final class MakeBoundedContextCommand extends Command
 
             $this->put(
                 $path."/Shared/Infrastructure/Http/Routes/{$kind}.php",
-                $this->stub("bounded-context.routes.{$kind}", $context)
+                $this->stub("bounded-context.routes.{$kind}", ['{{ context }}' => $context])
             );
         }
     }
@@ -147,58 +141,13 @@ final class MakeBoundedContextCommand extends Command
             return;
         }
 
-        // Imports are kept alphabetical, otherwise Pint's ordered_imports
-        // fixer would fail on every generated context.
-        preg_match_all('/^use (.+);$/m', $contents, $matches);
-        $imports = $matches[1];
-        $imports[] = $class;
-        sort($imports);
-
-        $contents = preg_replace(
-            '/^use .+;\n(use .+;\n)*/m',
-            implode('', array_map(fn (string $i): string => "use {$i};\n", $imports)),
-            $contents,
-            1
-        );
-
         $contents = str_replace(
             "\n];",
             "\n    {$context}ServiceProvider::class,\n];",
-            (string) $contents
+            $this->withImport($contents, $class)
         );
 
         $this->files->put($file, $contents);
         $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=green>updated</>');
-    }
-
-    /**
-     * @param  array<string, string>  $replacements
-     */
-    private function stub(string $name, string $context, array $replacements = []): string
-    {
-        return str_replace(
-            array_merge(['{{ context }}'], array_keys($replacements)),
-            array_merge([$context], array_values($replacements)),
-            $this->files->get(base_path("stubs/{$name}.stub"))
-        );
-    }
-
-    private function put(string $path, string $contents): void
-    {
-        if ($this->files->exists($path) && ! $this->option('force')) {
-            $this->components->twoColumnDetail($this->relative($path), '<fg=yellow>exists, skipped</>');
-
-            return;
-        }
-
-        $this->files->ensureDirectoryExists(dirname($path));
-        $this->files->put($path, $contents);
-
-        $this->components->twoColumnDetail($this->relative($path), '<fg=green>created</>');
-    }
-
-    private function relative(string $path): string
-    {
-        return Str::after($path, base_path().DIRECTORY_SEPARATOR);
     }
 }

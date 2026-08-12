@@ -127,7 +127,24 @@ need and the provider will declare them for you:
 ```
 
 No layer directories are created. A context earns its `Domain`, `Application` and `Infrastructure`
-one aggregate at a time — in real projects plenty of aggregates never need all three.
+one aggregate at a time:
+
+```bash
+./vendor/bin/sail artisan ldd:make:aggregate Billing Invoice
+```
+
+That writes the aggregate root, its repository contract and Eloquent implementation, and its
+exceptions — then binds the repository in the context's service provider, which is what makes it
+resolvable at all. Everything else is opt in, because real aggregates rarely need every layer:
+
+| Flag | Adds |
+|---|---|
+| `--migration` | A migration, and its path in the provider's `$migrations` |
+| `--factory` | A model factory, routed through the aggregate's `new()` |
+| `--events` | A `Created` domain event, recorded by `new()` |
+| `--requests` | A form request |
+| `--api` | An API controller |
+| `--all` | All of the above |
 
 ## 📁 Structure
 

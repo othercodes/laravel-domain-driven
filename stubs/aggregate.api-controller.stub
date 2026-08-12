@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Infrastructure\Http\Controllers\API;
+
+use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
+use Illuminate\Http\JsonResponse;
+
+/**
+ * Class {{ aggregate }}Controller
+ *
+ * @author {{ author }}
+ */
+class {{ aggregate }}Controller
+{
+    public function __construct(private readonly {{ aggregate }}Repository $repository) {}
+
+    public function index(): JsonResponse
+    {
+        return new JsonResponse($this->repository->match([]));
+    }
+}

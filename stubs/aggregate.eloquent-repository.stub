@@ -1,0 +1,43 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Infrastructure\Persistence;
+
+use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
+use App\{{ context }}\{{ plural }}\Domain\{{ aggregate }};
+use Illuminate\Support\Collection;
+
+/**
+ * Class Eloquent{{ aggregate }}Repository
+ *
+ * @author {{ author }}
+ */
+class Eloquent{{ aggregate }}Repository implements {{ aggregate }}Repository
+{
+    public function find(string $id): ?{{ aggregate }}
+    {
+        return {{ aggregate }}::find($id);
+    }
+
+    /**
+     * @param  array<string, mixed>  $criteria
+     * @return Collection<int, {{ aggregate }}>
+     */
+    public function match(array $criteria): Collection
+    {
+        return {{ aggregate }}::query()->where($criteria)->get();
+    }
+
+    public function save({{ aggregate }} ${{ variable }}): {{ aggregate }}
+    {
+        ${{ variable }}->save();
+
+        return ${{ variable }};
+    }
+
+    public function delete({{ aggregate }} ${{ variable }}): void
+    {
+        ${{ variable }}->delete();
+    }
+}

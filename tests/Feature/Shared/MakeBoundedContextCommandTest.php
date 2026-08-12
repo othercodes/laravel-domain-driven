@@ -79,7 +79,7 @@ test('it refuses to overwrite an existing context', function () {
 });
 
 test('it normalises the context name', function () {
-    $this->artisan('ldd:make:bounded-context', ['name' => 'scaffoldfixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'scaffold_fixture'])->assertSuccessful();
 
     expect(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php'))->toBeFile();
 });

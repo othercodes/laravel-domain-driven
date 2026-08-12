@@ -17,6 +17,7 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Fortify\TwoFactorAuthenticatable;
+use Laravel\Sanctum\HasApiTokens;
 
 /**
  * Class User
@@ -35,6 +36,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  */
 class User extends Authenticatable implements MustVerifyEmail
 {
+    use HasApiTokens;
     use HasDomainEvents;
     use HasFactory;
     use HasProfilePhoto;

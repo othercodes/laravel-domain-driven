@@ -2,6 +2,7 @@
 
 namespace App\IdentityAndAccess;
 
+use App\IdentityAndAccess\APITokens\Domain\APIToken;
 use App\IdentityAndAccess\Users\Application\CreateUser;
 use App\IdentityAndAccess\Users\Application\EventHandlers\SendUserEmailVerification;
 use App\IdentityAndAccess\Users\Application\ResetUserPassword;
@@ -17,6 +18,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Laravel\Fortify\Fortify;
+use Laravel\Sanctum\Sanctum;
 
 /**
  * Class IdentityAndAccessServiceProvider
@@ -35,11 +37,16 @@ class IdentityAndAccessServiceProvider extends BoundedContextServiceProvider
 
     protected array $migrations = [
         __DIR__.'/Users/Infrastructure/Persistence/Migrations',
+        __DIR__.'/APITokens/Infrastructure/Persistence/Migrations',
     ];
 
     public function boot(): void
     {
         parent::boot();
+
+        // Sanctum's own model points at personal_access_tokens, whose
+        // tokenable_id is a bigint and cannot hold a user uuid.
+        Sanctum::usePersonalAccessTokenModel(APIToken::class);
 
         $this->bootFortify();
     }

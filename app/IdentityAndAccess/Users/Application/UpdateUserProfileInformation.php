@@ -2,13 +2,26 @@
 
 namespace App\IdentityAndAccess\Users\Application;
 
+use App\IdentityAndAccess\Users\Domain\Contracts\UserRepository;
 use App\IdentityAndAccess\Users\Domain\User;
+use ComplexHeart\Domain\Contracts\Events\EventBus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Laravel\Fortify\Contracts\UpdatesUserProfileInformation;
 
-class UpdateUserProfileInformation implements UpdatesUserProfileInformation
+/**
+ * Class UpdateUserProfileInformation
+ *
+ * @author Unay Santisteban <usantisteban@othercode.io>
+ */
+final readonly class UpdateUserProfileInformation implements UpdatesUserProfileInformation
 {
+    public function __construct(
+        private UserRepository $repository,
+        private EventBus $eventBus,
+    ) {}
+
     /**
      * Validate and update the given user's profile information.
      *
@@ -26,29 +39,15 @@ class UpdateUserProfileInformation implements UpdatesUserProfileInformation
             $user->updateProfilePhoto($input['photo']);
         }
 
-        if ($input['email'] !== $user->email) {
-            $this->updateVerifiedUser($user, $input);
-        } else {
-            $user->forceFill([
-                'name' => $input['name'],
-                'email' => $input['email'],
-            ])->save();
-        }
-    }
+        // The aggregate decides what changed and records the matching events;
+        // resetting email_verified_at and sending the verification notice are
+        // consequences of UserEmailUpdated, not of this use case.
+        DB::transaction(function () use ($user, $input): void {
+            $this->repository->save(
+                $user->updateName($input['name'])->updateEmail($input['email'])
+            );
 
-    /**
-     * Update the given verified user's profile information.
-     *
-     * @param  array<string, string>  $input
-     */
-    protected function updateVerifiedUser(User $user, array $input): void
-    {
-        $user->forceFill([
-            'name' => $input['name'],
-            'email' => $input['email'],
-            'email_verified_at' => null,
-        ])->save();
-
-        $user->sendEmailVerificationNotification();
+            $user->publishDomainEvents($this->eventBus);
+        });
     }
 }

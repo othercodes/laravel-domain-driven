@@ -290,9 +290,12 @@ test('it hints a distinct route for the api controller', function () {
         'context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true, '--api' => true,
     ])
         // One expectation per emitted line: each is consumed as it matches,
-        // so URI and name go in the same assertion rather than two.
+        // so URI and name go in the same assertion rather than two. The api
+        // URI is kept apart by the prefix group, the convention the rest of
+        // the application already follows.
         ->expectsOutputToContain("Route::get('/widgets/{id}', [WidgetController::class, 'show'])->name('widgets.show');")
-        ->expectsOutputToContain("Route::get('/api/widgets/{id}', [WidgetController::class, 'show'])->name('api.widgets.show');")
+        ->expectsOutputToContain("Route::prefix('api')->group(function () {")
+        ->expectsOutputToContain("Route::get('/widgets/{id}', [WidgetController::class, 'show'])->name('api.widgets.show');")
         ->assertSuccessful();
 });
 

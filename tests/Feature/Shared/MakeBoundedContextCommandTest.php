@@ -143,6 +143,33 @@ test('a context is not mistaken for one whose name ends with it', function () {
         ->and(php_parses($this->providers))->toBeTrue();
 });
 
+test('force refuses to regenerate a provider that declares anything', function () {
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true])
+        ->assertSuccessful();
+
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+    $before = File::get($provider);
+
+    // Asking for route files on a context already in use is the natural way
+    // to reach --force, and regenerating from the stub would drop every
+    // binding and migration path while reporting success.
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true, '--force' => true])
+        ->assertFailed();
+
+    expect(File::get($provider))->toBe($before);
+});
+
+test('force regenerates a provider that declares nothing', function () {
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true, '--force' => true])
+        ->assertSuccessful();
+
+    expect(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')))
+        ->toContain("'web' => [__DIR__.'/Shared/Infrastructure/Http/Routes/web.php']");
+});
+
 test('registering an already known provider does not duplicate it', function () {
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--force' => true])->assertSuccessful();

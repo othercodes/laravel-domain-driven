@@ -137,14 +137,24 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // Web and api must differ in both URI and name. RouteCollection keys
         // routes by method and URI, so reusing the URI replaces the web route
         // outright instead of adding a second one; and a route name is global,
-        // so sharing that resolves route() to whichever came first. The api
-        // file gets no URI prefix of its own, hence carrying it in the path.
-        $routes = [
-            'web' => ['uri' => "/{$slug}", 'name' => "{$slug}.show"],
-            'api' => ['uri' => "/api/{$slug}", 'name' => "api.{$slug}.show"],
+        // so sharing that resolves route() to whichever came first.
+        //
+        // The api URI is kept distinct by the prefix group the context's api
+        // file declares, which is the convention the rest of the application
+        // follows: bootRoutes() applies the middleware group but no prefix.
+        $route = fn (string $name): string => "Route::get('/{$slug}/{id}', [{$this->aggregate}Controller::class, 'show'])->name('{$name}');";
+
+        $snippets = [
+            'web' => [$route("{$slug}.show")],
+            'api' => [
+                "Route::prefix('api')->group(function () {",
+                '    '.$route("api.{$slug}.show"),
+                '});',
+                "// the {$this->aggregate}Controller here is the one under Http\\Controllers\\API",
+            ],
         ];
 
-        foreach ($routes as $kind => $route) {
+        foreach ($snippets as $kind => $lines) {
             if (! $this->wants($kind)) {
                 continue;
             }
@@ -153,10 +163,9 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
             $this->newLine();
             $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
-            $this->line("  <fg=gray>Route::get('{$route['uri']}/{id}', [{$this->aggregate}Controller::class, 'show'])->name('{$route['name']}');</>");
 
-            if ($kind === 'api') {
-                $this->line("  <fg=gray>// importing the {$this->aggregate}Controller under Http\\Controllers\\API</>");
+            foreach ($lines as $line) {
+                $this->line("  <fg=gray>{$line}</>");
             }
 
             // Both commands make route files opt in, so this one may well not

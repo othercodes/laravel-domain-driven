@@ -48,6 +48,21 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
+        $provider = $path."/{$context}ServiceProvider.php";
+
+        // --force regenerates the provider from the stub. On a context that
+        // has been in use that silently drops every binding, migration path,
+        // listener and command it declares, and the aggregates stay on disk
+        // so the damage only surfaces later as an unresolvable contract.
+        if ($this->files->exists($provider) && ($declared = $this->declaredIn($provider)) !== []) {
+            $this->components->error("[{$context}ServiceProvider] already declares ".implode(' and ', $declared).'.');
+            $this->components->bulletList([
+                'Regenerating it would drop them. Edit the provider by hand, or delete it first.',
+            ]);
+
+            return self::FAILURE;
+        }
+
         $this->writeProvider($context, $path);
         $this->writeRoutes($context, $path);
         $registered = $this->registerProvider($context);
@@ -61,6 +76,35 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
         // The files exist but nothing loads them, so a script chaining on this
         // command must not treat it as done.
         return $registered ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * The provider properties that already hold entries, so regenerating the
+     * file would lose them. A property holding only comments holds nothing.
+     *
+     * @return list<string>
+     */
+    private function declaredIn(string $file): array
+    {
+        $contents = $this->files->get($file);
+        $declared = [];
+
+        foreach (['bindings', 'events', 'commands', 'migrations', 'routes'] as $property) {
+            // Checked first: the non-greedy patterns below would otherwise run
+            // past an empty declaration and close on a later property's array.
+            if (str_contains($contents, "array \${$property} = [];")) {
+                continue;
+            }
+
+            $found = preg_match('/array \$'.$property.' = \[(.*?)^    \];/ms', $contents, $matches) === 1
+                || preg_match('/array \$'.$property.' = \[(.*?)\];/s', $contents, $matches) === 1;
+
+            if ($found && trim((string) preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $matches[1])) !== '') {
+                $declared[] = "\${$property}";
+            }
+        }
+
+        return $declared;
     }
 
     private function writeProvider(string $context, string $path): void

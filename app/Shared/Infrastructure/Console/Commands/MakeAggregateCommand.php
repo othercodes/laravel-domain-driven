@@ -213,6 +213,15 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
             $file = "{$dir}/{$kind}.php";
 
+            // What the route file already holds decides this, not the flags.
+            // A developer who has declared the route may well have put it
+            // behind middleware, and pasting the canonical one back replaces
+            // it: RouteCollection keys by method and URI.
+            if ($this->files->exists($file)
+                && str_contains($this->files->get($file), "{$this->aggregate}Controller")) {
+                continue;
+            }
+
             $this->newLine();
             $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
 
@@ -229,9 +238,11 @@ final class MakeAggregateCommand extends ScaffoldCommand
             }
         }
 
-        if ($this->wants('web')) {
+        $page = base_path("resources/templates/tailwindcss/js/Pages/{$this->plural}/Show.vue");
+
+        if ($this->wants('web') && ! $this->files->exists($page)) {
             $this->newLine();
-            $this->line("  Create the page at <options=bold>resources/templates/tailwindcss/js/Pages/{$this->plural}/Show.vue</>");
+            $this->line("  Create the page at <options=bold>{$this->relative($page)}</>");
         }
     }
 

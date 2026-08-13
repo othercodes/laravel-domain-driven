@@ -20,12 +20,24 @@ beforeEach(function () {
         );
     }
 
+    // Lives outside app/, so it needs the same guard: the suite refuses to
+    // run rather than risk deleting a page directory it did not create.
+    $this->pages = base_path('resources/templates/tailwindcss/js/Pages/Widgets');
+
+    expect($this->pages)->not->toBeDirectory(
+        "{$this->pages} already exists; refusing to run so the teardown cannot delete it."
+    );
+
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
     $this->createdFixture = true;
 });
 
 afterEach(function () {
     File::put($this->providers, $this->providersBackup);
+
+    if ($this->createdFixture ?? false) {
+        File::deleteDirectory($this->pages);
+    }
 
     // Both fixtures are removed here rather than in the test body: an
     // assertion that fails leaves whatever the body had not reached yet, and
@@ -285,6 +297,32 @@ test('it pluralises the aggregate directory and studlies the class', function ()
 test('it refuses an unknown bounded context', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'Nope', 'name' => 'Widget'])
         ->assertFailed();
+});
+
+test('it does not re-advise a route the file already declares', function () {
+    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true];
+
+    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
+
+    $routes = app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes');
+    File::ensureDirectoryExists($routes);
+    File::put("{$routes}/web.php", "<?php\n\nRoute::middleware('auth')->get('/widgets/{id}', [WidgetController::class, 'show'])->name('widgets.show');\n");
+
+    // Pasting the canonical route back replaces the customised one, since
+    // RouteCollection keys by method and URI, and the auth middleware is
+    // gone with no error anywhere.
+    $this->artisan('ldd:make:aggregate', $args)
+        ->doesntExpectOutputToContain("->name('widgets.show')")
+        ->assertSuccessful();
+});
+
+test('it does not advise creating a page that already exists', function () {
+    File::ensureDirectoryExists($this->pages);
+    File::put("{$this->pages}/Show.vue", '<template><div /></template>');
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true])
+        ->doesntExpectOutputToContain('Create the page at')
+        ->assertSuccessful();
 });
 
 test('re-running with the same flags advises nothing', function () {

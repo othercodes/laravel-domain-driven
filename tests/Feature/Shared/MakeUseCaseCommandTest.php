@@ -72,6 +72,20 @@ test('it points at publishes when the aggregate records events', function () {
         ->assertSuccessful();
 });
 
+test('it stops advising publishes once something publishes', function () {
+    $this->artisan('ldd:make:use-case', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'CreateWidget', '--publishes' => true,
+    ])->assertSuccessful();
+
+    // The loop is closed, and a read use case should not publish anyway.
+    // ldd:make:aggregate asks the same question; the two must agree.
+    $this->artisan('ldd:make:use-case', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',
+    ])
+        ->doesntExpectOutputToContain('records domain events')
+        ->assertSuccessful();
+});
+
 test('it stays quiet when the aggregate has no events to lose', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Gadget'])
         ->assertSuccessful();

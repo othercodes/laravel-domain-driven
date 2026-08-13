@@ -62,7 +62,12 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         // $events is keyed by the event class, and a duplicate key in an array
         // literal silently drops the earlier one. Checked before anything is
         // written, so a refusal leaves no orphan handler behind.
-        if (preg_match('/(?<![\w\\\\])'.preg_quote($event, '/').'::class\s*=>/', $contents) === 1) {
+        //
+        // Comments are stripped first: a mapping somebody parked behind // is
+        // not a mapping, and would otherwise block the command outright.
+        $declared = (string) preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $contents);
+
+        if (preg_match('/(?<![\w\\\\])'.preg_quote($event, '/').'::class\s*=>/', $declared) === 1) {
             $this->components->error("[{$event}] is already handled in {$target['context']}ServiceProvider.");
             $this->components->bulletList([
                 'Declare the second handler by hand: PHP would drop one of two entries under the same key.',
@@ -71,7 +76,12 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        $this->put("{$target['path']}/Application/EventHandlers/{$name}.php", $this->stub('event-handler', [
+        $handler = "{$target['path']}/Application/EventHandlers/{$name}.php";
+
+        // put() reports whether it wrote. Adding the import to a handler this
+        // run did not create leaves it on a class that never gains the
+        // implements clause, which is an unused import and a lie.
+        $written = $this->put($handler, $this->stub('event-handler', [
             '{{ context }}' => $target['context'],
             '{{ plural }}' => $target['plural'],
             '{{ name }}' => $name,
@@ -80,7 +90,7 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         ]));
 
         if ($this->option('queued')) {
-            $this->queueTheHandler("{$target['path']}/Application/EventHandlers/{$name}.php");
+            $written ? $this->queueTheHandler($handler) : $this->printQueuedHint($handler, $name);
         }
 
         $wired = $this->wireProvider($provider, $contents, $target, $name, $event);
@@ -91,6 +101,19 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         // The handler exists but nothing calls it, so a script chaining on
         // this command must not treat it as done.
         return $wired ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * What the handler already declares decides this: asking for --queued on
+     * one that is already queued has nothing to say.
+     */
+    private function printQueuedHint(string $file, string $name): void
+    {
+        if (str_contains($this->files->get($file), 'ShouldQueue')) {
+            return;
+        }
+
+        $this->components->warn("{$name} already existed and was left as it is. Add `implements ShouldQueue` to it by hand.");
     }
 
     private function queueTheHandler(string $file): void

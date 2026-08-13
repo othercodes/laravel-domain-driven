@@ -73,6 +73,19 @@ final class MakeUseCaseCommand extends ScaffoldCommand
             return;
         }
 
+        // And only until something publishes them. This is the same question
+        // ldd:make:aggregate asks before printing its own version, and the two
+        // have no business disagreeing about the answer.
+        $application = "{$target['path']}/Application";
+
+        if ($this->files->isDirectory($application)) {
+            foreach ($this->files->allFiles($application) as $file) {
+                if (str_contains($file->getContents(), 'publishDomainEvents')) {
+                    return;
+                }
+            }
+        }
+
         $this->newLine();
         $this->line("  <fg=yellow>{$target['aggregate']} records domain events. A use case that creates or changes one</>");
         $this->line('  <fg=yellow>should publish them, which is what --publishes scaffolds.</>');

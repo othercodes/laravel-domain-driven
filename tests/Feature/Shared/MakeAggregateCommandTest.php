@@ -326,7 +326,9 @@ test('it stays quiet when the application layer already publishes', function () 
 
     $application = app_path('ScaffoldFixture/Widgets/Application');
     File::ensureDirectoryExists($application);
-    File::put("{$application}/CreateWidget.php", "<?php\n\n// \$widget->publishDomainEvents(\$this->eventBus);\n");
+    // A real call, not a mention of one: the command reads this file rather
+    // than searching it, so a commented line would not count and should not.
+    File::put("{$application}/CreateWidget.php", "<?php\n\n\$widget->publishDomainEvents(\$this->eventBus);\n");
 
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
         ->doesntExpectOutputToContain('Nothing publishes WidgetCreated.')
@@ -340,7 +342,17 @@ test('it does not re-advise a route the file already declares', function () {
 
     $routes = app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes');
     File::ensureDirectoryExists($routes);
-    File::put("{$routes}/web.php", "<?php\n\nRoute::middleware('auth')->get('/widgets/{id}', [WidgetController::class, 'show'])->name('widgets.show');\n");
+    // Imported, the way a route file that actually loads has to be: without
+    // the use statement WidgetController::class means the global one, and
+    // the command is right to say the controller is not wired here.
+    File::put("{$routes}/web.php", implode("\n", [
+        '<?php',
+        '',
+        'use App\ScaffoldFixture\Widgets\Infrastructure\Http\Controllers\WidgetController;',
+        '',
+        "Route::middleware('auth')->get('/widgets/{id}', [WidgetController::class, 'show'])->name('widgets.show');",
+        '',
+    ]));
 
     // Pasting the canonical route back replaces the customised one, since
     // RouteCollection keys by method and URI, and the auth middleware is
@@ -417,6 +429,56 @@ test('it hints a distinct route for the api controller', function () {
         ->expectsOutputToContain("Route::prefix('api')->group(function () {")
         ->expectsOutputToContain("Route::get('/widgets/{id}', [WidgetController::class, 'show'])->name('api.widgets.show');")
         ->assertSuccessful();
+});
+
+test('it does not register the migration path twice', function () {
+    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true];
+
+    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
+    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
+
+    // A second entry would load the same directory twice.
+    expect(substr_count(
+        File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')),
+        "__DIR__.'/Widgets/Infrastructure/Persistence/Migrations'"
+    ))->toBe(1);
+});
+
+test('it recognises a migration path however the provider is formatted', function () {
+    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true];
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
+
+    // The entry is read from the declaration, not matched as a formatted line,
+    // so re-indenting it no longer hides it and earn a duplicate.
+    File::put($provider, str_replace(
+        "        __DIR__.'/Widgets/Infrastructure/Persistence/Migrations',",
+        "            __DIR__ . '/Widgets/Infrastructure/Persistence/Migrations',",
+        File::get($provider)
+    ));
+
+    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
+
+    expect(substr_count(File::get($provider), "/Widgets/Infrastructure/Persistence/Migrations'"))->toBe(1);
+});
+
+test('it refuses to wire into a provider that does not parse', function () {
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
+
+    File::put($provider, str_replace(
+        'class ScaffoldFixtureServiceProvider',
+        'class ScaffoldFixtureServiceProvider(',
+        File::get($provider)
+    ));
+
+    // Reading it as empty would bind the repository a second time.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
+        ->assertFailed();
+
+    expect(substr_count(File::get($provider), '=> EloquentWidgetRepository::class'))->toBe(1);
 });
 
 test('it fails when the context provider has nothing to wire', function () {

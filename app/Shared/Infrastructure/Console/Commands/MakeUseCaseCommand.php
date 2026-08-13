@@ -42,7 +42,10 @@ final class MakeUseCaseCommand extends ScaffoldCommand
 
         $stub = $this->option('publishes') ? 'use-case.publishes' : 'use-case';
 
-        $this->put("{$target['path']}/Application/{$name}.php", $this->stub($stub, [
+        // put() reports whether it wrote, and saying "created" over the top of
+        // its own "exists, skipped" is how a run that did nothing reads like
+        // one that did.
+        $written = $this->put("{$target['path']}/Application/{$name}.php", $this->stub($stub, [
             '{{ context }}' => $target['context'],
             '{{ aggregate }}' => $target['aggregate'],
             '{{ plural }}' => $target['plural'],
@@ -51,7 +54,7 @@ final class MakeUseCaseCommand extends ScaffoldCommand
         ]));
 
         $this->newLine();
-        $this->components->info("Use case [{$name}] created in [{$target['context']}].");
+        $this->components->info("Use case [{$name}] ".($written ? 'created' : 'left as it is')." in [{$target['context']}].");
 
         $this->printPublishHint($target);
 

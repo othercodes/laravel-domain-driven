@@ -140,6 +140,25 @@ test('queued leaves a handler it did not write alone', function () {
         ->not->toContain('ShouldQueue');
 });
 
+test('it does not claim to have created a handler it skipped', function () {
+    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting'];
+
+    $this->artisan('ldd:make:event-handler', $args)->assertSuccessful();
+
+    File::put($this->provider, str_replace(
+        '        WidgetCreated::class => NotifyAccounting::class,'."\n",
+        '',
+        File::get($this->provider)
+    ));
+
+    // The run still does something worth reporting — it declares the mapping —
+    // but it did not create the handler and must not say it did.
+    $this->artisan('ldd:make:event-handler', $args)
+        ->expectsOutputToContain('exists, skipped')
+        ->expectsOutputToContain('[NotifyAccounting] declared in [ScaffoldFixture]')
+        ->assertSuccessful();
+});
+
 test('it fails when the provider has no events array to declare in', function () {
     File::put($this->provider, "<?php\n\nnamespace App\ScaffoldFixture;\n\nuse ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;\n\nclass ScaffoldFixtureServiceProvider extends BoundedContextServiceProvider\n{\n}\n");
 

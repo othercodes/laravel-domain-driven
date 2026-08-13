@@ -111,6 +111,19 @@ test('it refuses a context that does not exist', function () {
     ])->assertFailed();
 });
 
+test('it does not claim to have created a file it skipped', function () {
+    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget'];
+
+    $this->artisan('ldd:make:use-case', $args)->assertSuccessful();
+
+    // Saying "created" over the top of its own "exists, skipped" is how a run
+    // that did nothing reads like one that did.
+    $this->artisan('ldd:make:use-case', $args)
+        ->expectsOutputToContain('exists, skipped')
+        ->expectsOutputToContain('[FindWidget] left as it is')
+        ->assertSuccessful();
+});
+
 test('it never overwrites a use case that exists', function () {
     $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget'];
 

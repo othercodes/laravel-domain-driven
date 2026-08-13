@@ -96,7 +96,7 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         $wired = $this->wireProvider($provider, $contents, $target, $name, $event);
 
         $this->newLine();
-        $this->components->info("Event handler [{$name}] created in [{$target['context']}].");
+        $this->components->info("Event handler [{$name}] ".($written ? 'created' : 'declared')." in [{$target['context']}].");
 
         // The handler exists but nothing calls it, so a script chaining on
         // this command must not treat it as done.

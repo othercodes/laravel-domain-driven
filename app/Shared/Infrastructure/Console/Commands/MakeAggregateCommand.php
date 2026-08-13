@@ -131,6 +131,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $this->components->info("Aggregate [{$this->aggregate}] ".($modelExisted ? 'updated' : 'created')." in [{$this->context}].");
 
         $this->printModelHints($path, $modelExisted);
+        $this->printEventHints($path);
         $this->printRouteHints();
 
         // The files exist but the context does not know about them, so a
@@ -174,6 +175,37 @@ final class MakeAggregateCommand extends ScaffoldCommand
         foreach ($lines as $line) {
             $this->line("  <fg=gray>{$line}</>");
         }
+    }
+
+    /**
+     * A recorded domain event does nothing until something publishes it, and
+     * in this application that is the job of a use case: the repository only
+     * persists. Nothing generated here closes that loop, and an event that is
+     * never published fails the way everything else in these commands is
+     * built to prevent — silently.
+     */
+    private function printEventHints(string $path): void
+    {
+        if (! $this->wants('events')) {
+            return;
+        }
+
+        // What the aggregate's application layer already does decides this.
+        $application = "{$path}/Application";
+
+        if ($this->files->isDirectory($application)) {
+            foreach ($this->files->allFiles($application) as $file) {
+                if (str_contains($file->getContents(), 'publishDomainEvents')) {
+                    return;
+                }
+            }
+        }
+
+        $this->newLine();
+        $this->line("  <fg=yellow>Nothing publishes {$this->aggregate}Created. Add a use case in {$this->plural}/Application that does:</>");
+        $this->line("  <fg=gray>\${$this->variable} = \$this->repository->save({$this->aggregate}::new(\$input));</>");
+        $this->line("  <fg=gray>\${$this->variable}->publishDomainEvents(\$this->eventBus);  // ComplexHeart\\Domain\\Contracts\\Events\\EventBus</>");
+        $this->line('  <fg=gray>// both inside DB::transaction, so a failing listener cannot leave the aggregate persisted</>');
     }
 
     /**

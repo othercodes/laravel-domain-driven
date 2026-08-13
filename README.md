@@ -141,7 +141,7 @@ resolvable at all. Everything else is opt in, because real aggregates rarely nee
 |---|---|
 | `--migration` | A migration, and its path in the provider's `$migrations` |
 | `--factory` | A model factory, routed through the aggregate's `new()` |
-| `--events` | A `Created` domain event, recorded by `new()` |
+| `--events` | A `Created` domain event, recorded by `new()` and published by you |
 | `--requests` | A form request |
 | `--web` | An Inertia controller, rendering through `InertiaController` |
 | `--api` | An API controller |
@@ -149,6 +149,10 @@ resolvable at all. Everything else is opt in, because real aggregates rarely nee
 
 The table name defaults to the pluralised aggregate. Two contexts may each own an `Invoice`, but
 only one can create the `invoices` table, so `--table=billing_invoices` renames it for the second.
+
+An aggregate records its domain events; publishing them belongs to a use case, which injects
+`EventBus` and calls `publishDomainEvents()` inside the transaction that saved the aggregate. Until
+one exists the events go nowhere, so `--events` prints the two lines that close the loop.
 
 Both commands only ever add. Run one again with a flag you skipped and it writes what is missing,
 leaves every file already on disk alone — your migration may have been applied, and the provider

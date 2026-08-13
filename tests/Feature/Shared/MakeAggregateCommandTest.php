@@ -299,6 +299,29 @@ test('it refuses an unknown bounded context', function () {
         ->assertFailed();
 });
 
+test('it says that nothing publishes the generated event', function () {
+    // The aggregate records the event; only a use case publishes it. Without
+    // one the events pile up on the instance and vanish with it, which is the
+    // silent failure these commands exist to prevent.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
+        ->expectsOutputToContain('Nothing publishes WidgetCreated.')
+        ->expectsOutputToContain('publishDomainEvents($this->eventBus)')
+        ->assertSuccessful();
+});
+
+test('it stays quiet when the application layer already publishes', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
+        ->assertSuccessful();
+
+    $application = app_path('ScaffoldFixture/Widgets/Application');
+    File::ensureDirectoryExists($application);
+    File::put("{$application}/CreateWidget.php", "<?php\n\n// \$widget->publishDomainEvents(\$this->eventBus);\n");
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
+        ->doesntExpectOutputToContain('Nothing publishes WidgetCreated.')
+        ->assertSuccessful();
+});
+
 test('it does not re-advise a route the file already declares', function () {
     $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true];
 

@@ -242,10 +242,10 @@ app
     └── Users
 ```
 
-An aggregate has no fixed shape, and no layer is present in all of them. Across the 15 aggregates of the production
-application this starter grew from: 13 have `Domain`, 11 have `Infrastructure`, 10 have `Application` and 5 have
-`Domain/Events`. That is why `ldd:make:bounded-context` creates no layer directories at all, and why
-`ldd:make:aggregate` generates a core and puts the rest behind flags.
+An aggregate has no fixed shape. The two shipped here make the point: `Users` has all three layers, plus contracts,
+events, exceptions and event handlers, while `APITokens` is one model and one migration. That is why
+`ldd:make:bounded-context` creates no layer directories at all, and why `ldd:make:aggregate` generates a core and
+puts the rest behind flags.
 
 Each module follows a 3-layer architecture:
 

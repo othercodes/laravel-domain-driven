@@ -1,0 +1,12 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Domain\Exceptions;
+
+use Exception;
+
+/**
+ * Class {{ aggregate }}Exception
+ */
+class {{ aggregate }}Exception extends Exception {}

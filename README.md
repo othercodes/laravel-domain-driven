@@ -127,7 +127,36 @@ need and the provider will declare them for you:
 ```
 
 No layer directories are created. A context earns its `Domain`, `Application` and `Infrastructure`
-one aggregate at a time — in real projects plenty of aggregates never need all three.
+one aggregate at a time:
+
+```bash
+./vendor/bin/sail artisan ldd:make:aggregate Billing Invoice
+```
+
+That writes the aggregate root, its repository contract and Eloquent implementation, and its
+exceptions — then binds the repository in the context's service provider, which is what makes it
+resolvable at all. Everything else is opt in, because real aggregates rarely need every layer:
+
+| Flag | Adds |
+|---|---|
+| `--migration` | A migration, and its path in the provider's `$migrations` |
+| `--factory` | A model factory, routed through the aggregate's `new()` |
+| `--events` | A `Created` domain event, recorded by `new()` and published by you |
+| `--requests` | A form request |
+| `--web` | An Inertia controller, rendering through `InertiaController` |
+| `--api` | An API controller |
+| `--all` | All of the above |
+
+The table name defaults to the pluralised aggregate. Two contexts may each own an `Invoice`, but
+only one can create the `invoices` table, so `--table=billing_invoices` renames it for the second.
+
+An aggregate records its domain events; publishing them belongs to a use case, which injects
+`EventBus` and calls `publishDomainEvents()` inside the transaction that saved the aggregate. Until
+one exists the events go nowhere, so `--events` prints the two lines that close the loop.
+
+Both commands only ever add. Run one again with a flag you skipped and it writes what is missing,
+leaves every file already on disk alone — your migration may have been applied, and the provider
+carries wiring no stub knows about — and prints the lines to add by hand.
 
 ## 📁 Structure
 

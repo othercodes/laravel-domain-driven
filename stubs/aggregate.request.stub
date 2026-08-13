@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Infrastructure\Http\Requests;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+/**
+ * Class Store{{ aggregate }}Request
+ */
+class Store{{ aggregate }}Request extends FormRequest
+{
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            //
+        ];
+    }
+}

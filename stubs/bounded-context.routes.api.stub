@@ -5,11 +5,12 @@
 |
 | Loaded by {{ context }}ServiceProvider through its $routes array. The api
 | middleware group is applied for you, but the URI prefix is not, so declare
-| it here:
+| it here — and keep the result distinct from every web route, because two
+| routes sharing a method and a URI collapse into one:
 |
 |   use Illuminate\Support\Facades\Route;
 |
 |   Route::prefix('api')->middleware('auth:sanctum')->group(function () {
-|       Route::get('/example', ExampleController::class)->name('example');
+|       Route::get('/example', ExampleController::class)->name('api.example');
 |   });
 */

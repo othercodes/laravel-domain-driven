@@ -1,0 +1,26 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Infrastructure\Http\Controllers\API;
+
+use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
+use Illuminate\Http\JsonResponse;
+
+/**
+ * Class {{ aggregate }}Controller
+ *
+ * A listing action is deliberately not scaffolded: the repository's match()
+ * returns every row, so decide how to bound it before adding one.
+ */
+class {{ aggregate }}Controller
+{
+    public function __construct(private readonly {{ aggregate }}Repository $repository) {}
+
+    public function show(string $id): JsonResponse
+    {
+        // abort() rather than the domain's NotFound: an unhandled domain
+        // exception would answer 500 to an ordinary missing record.
+        return new JsonResponse($this->repository->find($id) ?? abort(404));
+    }
+}

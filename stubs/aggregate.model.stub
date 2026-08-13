@@ -1,0 +1,55 @@
+<?php
+
+namespace App\{{ context }}\{{ plural }}\Domain;
+
+use App\Shared\Domain\HasDomainEvents;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Arr;
+{{ modelUses }}
+/**
+ * Class {{ aggregate }}
+ *
+ * @property string $id
+ */
+class {{ aggregate }} extends Model
+{
+    use HasDomainEvents;
+{{ modelTraits }}    use HasUuids;
+
+    protected $table = '{{ table }}';
+
+    /** @var list<string> */
+    protected $fillable = [
+        //
+    ];
+
+    /**
+     * Attributes kept out of the model's array and JSON form.
+     *
+     * Worth filling in before anything serialises this: an API controller
+     * returning the model publishes every attribute it holds.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        //
+    ];
+
+    /**
+     * Creates a new {{ aggregate }}.
+     *
+     * The identifier is assigned up front, so domain events can carry it
+     * before the aggregate is persisted. Publishing them is the application
+     * layer's job.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public static function new(array $attributes = []): self
+    {
+        ${{ variable }} = new self(Arr::except($attributes, ['id']));
+        ${{ variable }}->id = $attributes['id'] ?? ${{ variable }}->newUniqueId();
+{{ modelRegisterEvent }}
+        return ${{ variable }};
+    }
+{{ modelFactoryMethod }}}

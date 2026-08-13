@@ -2,6 +2,7 @@
 
 namespace App\Shared;
 
+use App\Shared\Infrastructure\Console\Commands\MakeAggregateCommand;
 use App\Shared\Infrastructure\Console\Commands\MakeBoundedContextCommand;
 use ComplexHeart\Domain\Contracts\Events\EventBus;
 use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;
@@ -33,6 +34,7 @@ class SharedServiceProvider extends BoundedContextServiceProvider
     ];
 
     protected array $commands = [
+        MakeAggregateCommand::class,
         MakeBoundedContextCommand::class,
     ];
 
@@ -99,7 +101,7 @@ class SharedServiceProvider extends BoundedContextServiceProvider
         RedirectResponse::macro('withErrorAlert', function (string $message, string $title = 'Oops...') {
             /** @var RedirectResponse $this */
             return $this->with('flash.alert', [
-                'style' => 'success',
+                'style' => 'danger',
                 'title' => $title,
                 'text' => $message,
             ]);

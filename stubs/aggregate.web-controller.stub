@@ -1,0 +1,36 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Infrastructure\Http\Controllers;
+
+use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
+use App\Shared\Infrastructure\Http\Controllers\InertiaController;
+use Illuminate\Http\Request;
+use Inertia\Response;
+
+/**
+ * Class {{ aggregate }}Controller
+ *
+ * Renders through InertiaController::render() rather than Inertia::render(),
+ * so the page goes through the rendering callbacks the base class exposes.
+ *
+ * A listing action is deliberately not scaffolded: the repository's match()
+ * returns every row, so decide how to bound it before adding one.
+ */
+class {{ aggregate }}Controller extends InertiaController
+{
+    public function __construct(private readonly {{ aggregate }}Repository $repository) {}
+
+    public function show(Request $request, string $id): Response
+    {
+        // abort() rather than the domain's NotFound: mapping a domain
+        // exception to a status code is the HTTP layer's job, and an
+        // unhandled one would answer 500 to an ordinary missing record.
+        ${{ variable }} = $this->repository->find($id) ?? abort(404);
+
+        return $this->render($request, '{{ plural }}/Show', [
+            '{{ variable }}' => ${{ variable }},
+        ]);
+    }
+}

@@ -1,0 +1,21 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Domain\Events;
+
+use ComplexHeart\Domain\Contracts\Events\Event;
+use ComplexHeart\Domain\Events\IsDomainEvent;
+
+/**
+ * Class {{ aggregate }}Created
+ */
+final class {{ aggregate }}Created implements Event
+{
+    use IsDomainEvent;
+
+    /**
+     * @param  string  ${{ variable }}  The created {{ aggregate }} uuid
+     */
+    public function __construct(public string ${{ variable }}) {}
+}

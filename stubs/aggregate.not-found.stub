@@ -1,0 +1,10 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Domain\Exceptions;
+
+/**
+ * Class {{ aggregate }}NotFound
+ */
+class {{ aggregate }}NotFound extends {{ aggregate }}Exception {}

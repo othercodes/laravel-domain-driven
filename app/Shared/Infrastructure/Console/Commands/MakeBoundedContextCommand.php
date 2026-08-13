@@ -4,10 +4,6 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
-use Illuminate\Console\Command;
-use Illuminate\Filesystem\Filesystem;
-use Illuminate\Support\Str;
-
 /**
  * Class MakeBoundedContextCommand
  *
@@ -20,78 +16,98 @@ use Illuminate\Support\Str;
  *
  * @author Unay Santisteban <usantisteban@othercode.io>
  */
-final class MakeBoundedContextCommand extends Command
+final class MakeBoundedContextCommand extends ScaffoldCommand
 {
     protected $signature = 'ldd:make:bounded-context
         {name : The bounded context name, e.g. VisaManagement}
         {--web : Add a web routes file}
-        {--api : Add an api routes file}
-        {--force : Overwrite files that already exist}';
+        {--api : Add an api routes file}';
 
     protected $description = 'Create a bounded context with its service provider';
 
-    public function __construct(private readonly Filesystem $files)
-    {
-        parent::__construct();
-    }
-
     public function handle(): int
     {
-        $context = Str::studly((string) $this->argument('name'));
+        $context = $this->identifier((string) $this->argument('name'), 'bounded context');
 
-        if ($context === '') {
-            $this->components->error('The bounded context name cannot be empty.');
-
+        if ($context === null) {
             return self::FAILURE;
         }
 
-        if ($context !== $this->argument('name')) {
-            $this->components->info("Using [{$context}] as the context name.");
+        if ($context === self::SHARED_CONTEXT) {
+            $this->components->error('[Shared] already exists as the application foundation layer.');
+
+            return self::FAILURE;
         }
 
         $path = app_path($context);
+        $provider = $path."/{$context}ServiceProvider.php";
 
-        if ($this->files->isDirectory($path) && ! $this->option('force')) {
-            $this->components->error("The bounded context [{$context}] already exists.");
-
-            return self::FAILURE;
-        }
+        // Running this again on a context already in use has to be safe: the
+        // provider is the one file that accumulates hand-written wiring, and
+        // rewriting it from the stub would drop every binding and migration
+        // path while the aggregates stayed on disk.
+        $providerExisted = $this->files->exists($provider);
 
         $this->writeProvider($context, $path);
-        $this->writeRoutes($context, $path);
-        $this->registerProvider($context);
+        $routes = $this->writeRoutes($context, $path);
+        $registered = $this->registerProvider($context);
 
         $this->newLine();
-        $this->components->info("Bounded context [{$context}] created.");
+        $this->components->info("Bounded context [{$context}] ".($providerExisted ? 'updated.' : 'created.'));
         $this->components->bulletList([
             "Add aggregates with: php artisan ldd:make:aggregate {$context} <Aggregate>",
         ]);
 
-        return self::SUCCESS;
+        // A route file the provider does not declare is never loaded, and the
+        // only symptom is a 404.
+        if ($providerExisted && $routes !== []) {
+            $this->newLine();
+            $this->line("  <fg=yellow>{$context}ServiceProvider was left as it is. Declare the new file(s) in its \$routes:</>");
+
+            foreach ($routes as $kind) {
+                $this->line("  <fg=gray>'{$kind}' => [__DIR__.'/Shared/Infrastructure/Http/Routes/{$kind}.php'],</>");
+            }
+        }
+
+        // The files exist but nothing loads them, so a script chaining on this
+        // command must not treat it as done.
+        return $registered ? self::SUCCESS : self::FAILURE;
     }
 
     private function writeProvider(string $context, string $path): void
     {
         $this->put(
             $path."/{$context}ServiceProvider.php",
-            $this->stub('bounded-context.provider', $context, [
+            $this->stub('bounded-context.provider', [
+                '{{ context }}' => $context,
                 '{{ routes }}' => $this->routesProperty($context),
             ])
         );
     }
 
-    private function writeRoutes(string $context, string $path): void
+    /**
+     * @return list<string> The route files this run actually created.
+     */
+    private function writeRoutes(string $context, string $path): array
     {
+        $created = [];
+
         foreach (['web', 'api'] as $kind) {
             if (! $this->option($kind)) {
                 continue;
             }
 
-            $this->put(
+            $written = $this->put(
                 $path."/Shared/Infrastructure/Http/Routes/{$kind}.php",
-                $this->stub("bounded-context.routes.{$kind}", $context)
+                $this->stub("bounded-context.routes.{$kind}", ['{{ context }}' => $context])
             );
+
+            if ($written) {
+                $created[] = $kind;
+            }
         }
+
+        return $created;
     }
 
     /**
@@ -135,70 +151,46 @@ final class MakeBoundedContextCommand extends Command
      * Adds the provider to bootstrap/providers.php, keeping the list sorted
      * the way the file already is.
      */
-    private function registerProvider(string $context): void
+    private function registerProvider(string $context): bool
     {
         $file = base_path('bootstrap/providers.php');
         $contents = $this->files->get($file);
         $class = "App\\{$context}\\{$context}ServiceProvider";
 
-        if (str_contains($contents, $class)) {
+        // Both shapes count as registered: Laravel's own providers.php lists
+        // classes fully qualified, while this command adds an import and the
+        // short name. Matching the bare class name would also match the
+        // import, so a run that added the import but never reached the list
+        // would report itself as already registered for ever after; the
+        // lookbehind keeps Probe from matching SubProbeServiceProvider.
+        $registered = str_contains($contents, $class.'::class')
+            || preg_match('/(?<![\w\\\\])'.preg_quote($context, '/').'ServiceProvider::class/', $contents) === 1;
+
+        if ($registered) {
             $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=yellow>already registered</>');
 
-            return;
+            return true;
         }
 
-        // Imports are kept alphabetical, otherwise Pint's ordered_imports
-        // fixer would fail on every generated context.
-        preg_match_all('/^use (.+);$/m', $contents, $matches);
-        $imports = $matches[1];
-        $imports[] = $class;
-        sort($imports);
+        $imported = $this->withImport($contents, $class);
 
-        $contents = preg_replace(
-            '/^use .+;\n(use .+;\n)*/m',
-            implode('', array_map(fn (string $i): string => "use {$i};\n", $imports)),
-            $contents,
-            1
-        );
+        $updated = $imported === null
+            ? null
+            : $this->appendToList($imported, 'return [', "    {$context}ServiceProvider::class,", '');
 
-        $contents = str_replace(
-            "\n];",
-            "\n    {$context}ServiceProvider::class,\n];",
-            (string) $contents
-        );
+        // Appending the short name without its import leaves an unqualified
+        // reference, and adding the import without the entry leaves a context
+        // nothing ever loads. Both are silent, so neither may report green.
+        if ($updated === null) {
+            $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=red>could not be updated</>');
+            $this->components->warn("Register {$class} in bootstrap/providers.php by hand.");
 
-        $this->files->put($file, $contents);
+            return false;
+        }
+
+        $this->files->put($file, $updated);
         $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=green>updated</>');
-    }
 
-    /**
-     * @param  array<string, string>  $replacements
-     */
-    private function stub(string $name, string $context, array $replacements = []): string
-    {
-        return str_replace(
-            array_merge(['{{ context }}'], array_keys($replacements)),
-            array_merge([$context], array_values($replacements)),
-            $this->files->get(base_path("stubs/{$name}.stub"))
-        );
-    }
-
-    private function put(string $path, string $contents): void
-    {
-        if ($this->files->exists($path) && ! $this->option('force')) {
-            $this->components->twoColumnDetail($this->relative($path), '<fg=yellow>exists, skipped</>');
-
-            return;
-        }
-
-        $this->files->ensureDirectoryExists(dirname($path));
-        $this->files->put($path, $contents);
-
-        $this->components->twoColumnDetail($this->relative($path), '<fg=green>created</>');
-    }
-
-    private function relative(string $path): string
-    {
-        return Str::after($path, base_path().DIRECTORY_SEPARATOR);
+        return true;
     }
 }

@@ -153,7 +153,7 @@ one aggregate at a time:
 ```
 
 That writes the aggregate root, its repository contract and Eloquent implementation, and its
-exceptions — then binds the repository in the context's service provider, which is what makes it
+exceptions. It then binds the repository in the context's service provider, which is what makes it
 resolvable at all. Everything else is opt in, because real aggregates rarely need every layer:
 
 | Flag | Adds |
@@ -182,13 +182,13 @@ recorded events inside the same transaction, so a failing listener cannot leave 
 persisted. Without it the events pile up on the instance and vanish with it.
 
 The handler is the one that needs wiring. It is declared in the provider's `$events`, and one that
-is missing from there is simply never called — which is why the command refuses to add a second
+is missing from there is simply never called. That is why the command refuses to add a second
 handler for an event that already has one, rather than leave two entries under a key where PHP
 keeps only the last.
 
 All four commands only ever add. Run one again with a flag you skipped and it writes what is missing,
-leaves every file already on disk alone — your migration may have been applied, and the provider
-carries wiring no stub knows about — and prints the lines to add by hand.
+leaves every file already on disk alone, since your migration may have been applied and the provider
+carries wiring no stub knows about, and prints the lines to add by hand.
 
 ## 📁 Structure
 
@@ -216,7 +216,7 @@ app
     └── SharedServiceProvider.php
 ```
 
-A context's own `Shared` directory holds what its aggregates have in common — its route files live there. The
+A context's own `Shared` directory holds what its aggregates have in common, such as its route files. The
 top-level `Shared` is the application's foundation layer rather than a bounded context: it owns the scaffolding
 commands, the Inertia base controller, middleware and the cache and jobs migrations, and it is the one place
 `ldd:make:aggregate` refuses to write into.
@@ -336,7 +336,7 @@ app
                 └── UserFactory.php
 ```
 
-Migrations belong to the aggregate that owns the table, not to `database/migrations` — which this starter does not
+Migrations belong to the aggregate that owns the table, not to `database/migrations`, which this starter does not
 have. Each one is registered through the `$migrations` array on the context's provider, and forgetting that entry is
 the quiet failure `ldd:make:aggregate --migration` exists to prevent.
 
@@ -361,7 +361,7 @@ and the architecture rules exempt it by detecting `newFactory` rather than listi
 
 **Domain events are ComplexHeart's, not Laravel's.** They implement `ComplexHeart\Domain\Contracts\Events\Event` and
 use the `IsDomainEvent` trait, which supplies `eventId`, `eventName`, `payload` and `occurredOn`. They carry
-identifiers and scalars, never Eloquent models — which is what makes `payload()` meaningful and `SerializesModels`
+identifiers and scalars, never Eloquent models. That is what makes `payload()` meaningful and `SerializesModels`
 unnecessary. An aggregate records them; a use case publishes them through the `EventBus`.
 
 ## ⚠️ Disclaimer

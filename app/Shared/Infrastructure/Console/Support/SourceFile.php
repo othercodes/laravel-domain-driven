@@ -244,8 +244,8 @@ final class SourceFile
     }
 
     /**
-     * One statement can declare several properties — `protected array $a = [],
-     * $b = [];` — so the one asked for is not always the first.
+     * One statement can declare several properties, as in `protected array
+     * $a = [], $b = [];`, so the one asked for is not always the first.
      */
     private function propertyDefault(string $property): ?Node\Expr
     {

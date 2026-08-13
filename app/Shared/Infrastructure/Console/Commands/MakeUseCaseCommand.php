@@ -13,8 +13,8 @@ use Illuminate\Support\Str;
  * Adds a use case to an aggregate's Application layer.
  *
  * Nothing needs wiring: the container resolves the constructor by itself.
- * What this saves is the shape — a final readonly class that reaches the
- * domain only through the repository contract — and, with --publishes, the
+ * What this saves is the shape, a final readonly class that reaches the
+ * domain only through the repository contract, and, with --publishes, the
  * one idiom that is easy to leave out and impossible to notice missing.
  *
  * @author Unay Santisteban <usantisteban@othercode.io>

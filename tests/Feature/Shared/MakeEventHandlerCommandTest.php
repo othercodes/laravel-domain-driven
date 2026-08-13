@@ -151,7 +151,7 @@ test('it does not claim to have created a handler it skipped', function () {
         File::get($this->provider)
     ));
 
-    // The run still does something worth reporting — it declares the mapping —
+    // The run still does something worth reporting, it declares the mapping,
     // but it did not create the handler and must not say it did.
     $this->artisan('ldd:make:event-handler', $args)
         ->expectsOutputToContain('exists, skipped')

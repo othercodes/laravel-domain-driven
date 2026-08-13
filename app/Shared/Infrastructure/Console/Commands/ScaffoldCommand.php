@@ -77,6 +77,54 @@ abstract class ScaffoldCommand extends Command
     }
 
     /**
+     * Resolves an existing aggregate from the names it was given.
+     *
+     * The names are passed in rather than read here: a base class cannot
+     * know which arguments its subclasses declare, and reaching for one that
+     * does not exist is a runtime error waiting for whoever adds the next
+     * command.
+     *
+     * Returns null, having said why, when either is missing: these commands
+     * add to an aggregate that exists, they never create one.
+     *
+     * @return array{context: string, aggregate: string, plural: string, path: string}|null
+     */
+    protected function target(string $contextName, string $aggregateName): ?array
+    {
+        $context = $this->identifier($contextName, 'bounded context');
+        $aggregate = $this->identifier($aggregateName, 'aggregate');
+
+        if ($context === null || $aggregate === null) {
+            return null;
+        }
+
+        // A directory alone is not a context: it also has to be wired by a
+        // provider named after it, which is what these commands edit.
+        if (! $this->files->exists(app_path("{$context}/{$context}ServiceProvider.php"))) {
+            $this->components->error("The bounded context [{$context}] does not exist.");
+            $this->components->bulletList([
+                "Create it with: php artisan ldd:make:bounded-context {$context}",
+            ]);
+
+            return null;
+        }
+
+        $plural = Str::plural($aggregate);
+        $path = app_path("{$context}/{$plural}");
+
+        if (! $this->files->isDirectory($path)) {
+            $this->components->error("The aggregate [{$aggregate}] does not exist in [{$context}].");
+            $this->components->bulletList([
+                "Create it with: php artisan ldd:make:aggregate {$context} {$aggregate}",
+            ]);
+
+            return null;
+        }
+
+        return compact('context', 'aggregate', 'plural', 'path');
+    }
+
+    /**
      * @param  array<string, string>  $replacements
      */
     protected function stub(string $name, array $replacements): string

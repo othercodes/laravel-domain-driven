@@ -4,6 +4,8 @@ namespace App\Shared;
 
 use App\Shared\Infrastructure\Console\Commands\MakeAggregateCommand;
 use App\Shared\Infrastructure\Console\Commands\MakeBoundedContextCommand;
+use App\Shared\Infrastructure\Console\Commands\MakeEventHandlerCommand;
+use App\Shared\Infrastructure\Console\Commands\MakeUseCaseCommand;
 use ComplexHeart\Domain\Contracts\Events\EventBus;
 use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;
 use ComplexHeart\Infrastructure\Laravel\ServiceBus\IlluminateEventBus;
@@ -36,6 +38,8 @@ class SharedServiceProvider extends BoundedContextServiceProvider
     protected array $commands = [
         MakeAggregateCommand::class,
         MakeBoundedContextCommand::class,
+        MakeEventHandlerCommand::class,
+        MakeUseCaseCommand::class,
     ];
 
     public function boot(): void

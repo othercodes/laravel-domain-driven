@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
+use App\Shared\Infrastructure\Console\Support\SourceFile;
 use Illuminate\Support\Str;
 
 /**
@@ -153,14 +154,14 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // What the model already carries decides this, not the flags: running
         // the same command twice would otherwise advise redeclaring
         // newFactory(), which is fatal, and registering the event twice.
-        $model = $this->files->get("{$path}/Domain/{$this->aggregate}.php");
+        $model = SourceFile::at("{$path}/Domain/{$this->aggregate}.php");
         $lines = [];
 
-        if ($this->wants('events') && ! str_contains($model, 'registerDomainEvent')) {
+        if ($this->wants('events') && ! $model->calls('registerDomainEvent')) {
             $lines[] = "in new(): \${$this->variable}->registerDomainEvent({$this->aggregate}Created::new(\${$this->variable}->id));";
         }
 
-        if ($this->wants('factory') && ! str_contains($model, 'newFactory')) {
+        if ($this->wants('factory') && ! $model->declaresMethod('newFactory')) {
             $lines[] = 'use HasFactory; (imported from Illuminate\Database\Eloquent\Factories)';
             $lines[] = "protected static function newFactory(): {$this->aggregate}Factory { return {$this->aggregate}Factory::new(); }";
         }
@@ -195,7 +196,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         if ($this->files->isDirectory($application)) {
             foreach ($this->files->allFiles($application) as $file) {
-                if (str_contains($file->getContents(), 'publishDomainEvents')) {
+                if (SourceFile::at($file->getPathname())->calls('publishDomainEvents')) {
                     return;
                 }
             }
@@ -228,17 +229,25 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // follows: bootRoutes() applies the middleware group but no prefix.
         $route = fn (string $name): string => "Route::get('/{$slug}/{id}', [{$this->aggregate}Controller::class, 'show'])->name('{$name}');";
 
+        $controller = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Http\\Controllers\\{$this->aggregate}Controller";
+
         $snippets = [
-            'web' => [$route("{$slug}.show")],
+            'web' => [
+                'controller' => $controller,
+                'lines' => [$route("{$slug}.show")],
+            ],
             'api' => [
-                "Route::prefix('api')->group(function () {",
-                '    '.$route("api.{$slug}.show"),
-                '});',
-                "// the {$this->aggregate}Controller here is the one under Http\\Controllers\\API",
+                'controller' => "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Http\\Controllers\\API\\{$this->aggregate}Controller",
+                'lines' => [
+                    "Route::prefix('api')->group(function () {",
+                    '    '.$route("api.{$slug}.show"),
+                    '});',
+                    "// the {$this->aggregate}Controller here is the one under Http\\Controllers\\API",
+                ],
             ],
         ];
 
-        foreach ($snippets as $kind => $lines) {
+        foreach ($snippets as $kind => $snippet) {
             if (! $this->wants($kind)) {
                 continue;
             }
@@ -249,15 +258,17 @@ final class MakeAggregateCommand extends ScaffoldCommand
             // A developer who has declared the route may well have put it
             // behind middleware, and pasting the canonical one back replaces
             // it: RouteCollection keys by method and URI.
-            if ($this->files->exists($file)
-                && str_contains($this->files->get($file), "{$this->aggregate}Controller")) {
+            //
+            // Asked by its full name, which is what tells the web controller
+            // from the one under API: they share a short name.
+            if (SourceFile::at($file)->references($snippet['controller'])) {
                 continue;
             }
 
             $this->newLine();
             $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
 
-            foreach ($lines as $line) {
+            foreach ($snippet['lines'] as $line) {
                 $this->line("  <fg=gray>{$line}</>");
             }
 
@@ -280,9 +291,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
     private function tableDeclaredIn(string $model): ?string
     {
-        return preg_match('/protected \$table = \'([^\']+)\';/', $this->files->get($model), $matches) === 1
-            ? $matches[1]
-            : null;
+        return SourceFile::at($model)->propertyString('table');
     }
 
     /**
@@ -415,25 +424,32 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         $contents = $this->files->get($file);
 
-        // Matching the generated line verbatim would miss a reformatted or
-        // re-indented provider and append the binding a second time, silently
-        // overriding whatever the first one pointed at.
-        $alreadyBound = preg_match(
-            '/\b'.preg_quote("{$this->aggregate}Repository", '/').'::class\s*=>/',
-            $contents
-        ) === 1;
+        // Asked of the declaration itself: matching the generated line would
+        // miss a reformatted provider and append the binding a second time,
+        // silently overriding whatever the first one pointed at, while
+        // matching the text alone would count one left in a comment.
+        $declared = SourceFile::at($file);
 
-        if (! $alreadyBound) {
+        // Unreadable is not the same as empty: taking it as empty binds the
+        // repository a second time and registers the migration path again.
+        if (! $declared->parsed()) {
+            $this->components->twoColumnDetail($this->relative($file), '<fg=red>could not be read</>');
+            $this->components->warn("{$this->context}ServiceProvider does not parse. Fix it, then run this again.");
+
+            return false;
+        }
+
+        if (! in_array($contract, $declared->propertyKeys('bindings'), true)) {
             $contents = $this->withImport($contents, $contract);
             $contents = $contents === null ? null : $this->withImport($contents, $eloquent);
             $contents = $contents === null ? null : $this->appendToArray($contents, 'bindings', $binding);
         }
 
         if ($contents !== null && $this->wants('migration')) {
-            $entry = "        __DIR__.'/{$this->plural}/Infrastructure/Persistence/Migrations',";
+            $path = "/{$this->plural}/Infrastructure/Persistence/Migrations";
 
-            if (! str_contains($contents, $entry)) {
-                $contents = $this->appendToArray($contents, 'migrations', $entry);
+            if (! in_array($path, $declared->propertyStrings('migrations'), true)) {
+                $contents = $this->appendToArray($contents, 'migrations', "        __DIR__.'{$path}',");
             }
         }
 

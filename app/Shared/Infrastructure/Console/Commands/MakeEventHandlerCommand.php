@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
+use App\Shared\Infrastructure\Console\Support\SourceFile;
+
 /**
  * Class MakeEventHandlerCommand
  *
@@ -63,11 +65,25 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         // literal silently drops the earlier one. Checked before anything is
         // written, so a refusal leaves no orphan handler behind.
         //
-        // Comments are stripped first: a mapping somebody parked behind // is
-        // not a mapping, and would otherwise block the command outright.
-        $declared = (string) preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $contents);
+        // Asked of the declared keys: a mapping somebody parked behind // is
+        // not a mapping, and blocked the command outright when this was a
+        // search over the text.
+        $eventClass = "App\\{$target['context']}\\{$target['plural']}\\Domain\\Events\\{$event}";
+        $declared = SourceFile::at($provider);
 
-        if (preg_match('/(?<![\w\\\\])'.preg_quote($event, '/').'::class\s*=>/', $declared) === 1) {
+        // Unreadable is not the same as empty. Treating it as empty here would
+        // add a second entry under a key that already has one, which is the
+        // exact silent loss this guard exists to prevent.
+        if (! $declared->parsed()) {
+            $this->components->error("{$target['context']}ServiceProvider does not parse, so its \$events cannot be read.");
+            $this->components->bulletList([
+                'Fix the provider first: a second entry under one key drops the first without a word.',
+            ]);
+
+            return self::FAILURE;
+        }
+
+        if (in_array($eventClass, $declared->propertyKeys('events'), true)) {
             $this->components->error("[{$event}] is already handled in {$target['context']}ServiceProvider.");
             $this->components->bulletList([
                 'Declare the second handler by hand: PHP would drop one of two entries under the same key.',
@@ -109,7 +125,7 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
      */
     private function printQueuedHint(string $file, string $name): void
     {
-        if (str_contains($this->files->get($file), 'ShouldQueue')) {
+        if (SourceFile::at($file)->implementsInterface('Illuminate\\Contracts\\Queue\\ShouldQueue')) {
             return;
         }
 

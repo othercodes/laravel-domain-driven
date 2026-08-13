@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
+use App\Shared\Infrastructure\Console\Support\SourceFile;
 use Illuminate\Support\Str;
 
 /**
@@ -83,7 +84,7 @@ final class MakeUseCaseCommand extends ScaffoldCommand
 
         if ($this->files->isDirectory($application)) {
             foreach ($this->files->allFiles($application) as $file) {
-                if (str_contains($file->getContents(), 'publishDomainEvents')) {
+                if (SourceFile::at($file->getPathname())->calls('publishDomainEvents')) {
                     return;
                 }
             }

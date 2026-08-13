@@ -159,6 +159,46 @@ test('it does not claim to have created a handler it skipped', function () {
         ->assertSuccessful();
 });
 
+test('queued says nothing about a handler that is already queued', function () {
+    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting', '--queued' => true];
+
+    $this->artisan('ldd:make:event-handler', $args)->assertSuccessful();
+
+    File::put($this->provider, str_replace(
+        '        WidgetCreated::class => NotifyAccounting::class,'."\n",
+        '',
+        File::get($this->provider)
+    ));
+
+    // The file is skipped either way; the difference is that this one already
+    // implements ShouldQueue, so there is nothing left to do by hand.
+    $this->artisan('ldd:make:event-handler', $args)
+        ->doesntExpectOutputToContain('already existed and was left as it is')
+        ->assertSuccessful();
+});
+
+test('it refuses to guess at a provider that does not parse', function () {
+    $this->artisan('ldd:make:event-handler', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting',
+    ])->assertSuccessful();
+
+    File::put($this->provider, str_replace(
+        'class ScaffoldFixtureServiceProvider',
+        'class ScaffoldFixtureServiceProvider(',
+        File::get($this->provider)
+    ));
+
+    // Reading it as empty would add a second entry under a key that already
+    // has one, and PHP keeps only the last: the first handler stops running
+    // with nothing said anywhere.
+    $this->artisan('ldd:make:event-handler', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'AlsoNotify',
+    ])->assertFailed();
+
+    expect(substr_count(File::get($this->provider), 'WidgetCreated::class =>'))->toBe(1)
+        ->and(app_path('ScaffoldFixture/Widgets/Application/EventHandlers/AlsoNotify.php'))->not->toBeFile();
+});
+
 test('it fails when the provider has no events array to declare in', function () {
     File::put($this->provider, "<?php\n\nnamespace App\ScaffoldFixture;\n\nuse ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;\n\nclass ScaffoldFixtureServiceProvider extends BoundedContextServiceProvider\n{\n}\n");
 

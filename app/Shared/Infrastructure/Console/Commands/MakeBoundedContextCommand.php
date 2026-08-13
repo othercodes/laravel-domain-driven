@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
+use App\Shared\Infrastructure\Console\Support\SourceFile;
+
 /**
  * Class MakeBoundedContextCommand
  *
@@ -157,16 +159,21 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
         $contents = $this->files->get($file);
         $class = "App\\{$context}\\{$context}ServiceProvider";
 
-        // Both shapes count as registered: Laravel's own providers.php lists
-        // classes fully qualified, while this command adds an import and the
-        // short name. Matching the bare class name would also match the
-        // import, so a run that added the import but never reached the list
-        // would report itself as already registered for ever after; the
-        // lookbehind keeps Probe from matching SubProbeServiceProvider.
-        $registered = str_contains($contents, $class.'::class')
-            || preg_match('/(?<![\w\\\\])'.preg_quote($context, '/').'ServiceProvider::class/', $contents) === 1;
+        // Asked of the array itself. Laravel's own providers.php lists classes
+        // fully qualified and this command adds an import and the short name;
+        // resolved through the file's imports both name the same class, and
+        // neither an import on its own nor a mention in a comment counts.
 
-        if ($registered) {
+        $listed = SourceFile::at($file);
+
+        if (! $listed->parsed()) {
+            $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=red>could not be read</>');
+            $this->components->warn("bootstrap/providers.php does not parse. Register {$class} once it does.");
+
+            return false;
+        }
+
+        if (in_array($class, $listed->returnedClasses(), true)) {
             $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=yellow>already registered</>');
 
             return true;

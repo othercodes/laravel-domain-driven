@@ -299,6 +299,17 @@ test('it refuses an unknown bounded context', function () {
         ->assertFailed();
 });
 
+test('the generated model has a place to hide attributes', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--api' => true])
+        ->assertSuccessful();
+
+    // The API controller returns the model straight into a JsonResponse, so
+    // whatever reaches $fillable is published unless $hidden says otherwise.
+    // Anchored to a real property, not a mention in a comment.
+    expect(File::get(app_path('ScaffoldFixture/Widgets/Domain/Widget.php')))
+        ->toMatch('/^    protected \$hidden = \[/m');
+});
+
 test('it says that nothing publishes the generated event', function () {
     // The aggregate records the event; only a use case publishes it. Without
     // one the events pile up on the instance and vanish with it, which is the

@@ -25,6 +25,18 @@ class {{ aggregate }} extends Model
     ];
 
     /**
+     * Attributes kept out of the model's array and JSON form.
+     *
+     * Worth filling in before anything serialises this: an API controller
+     * returning the model publishes every attribute it holds.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        //
+    ];
+
+    /**
      * Creates a new {{ aggregate }}.
      *
      * The identifier is assigned up front, so domain events can carry it

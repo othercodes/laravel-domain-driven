@@ -1,0 +1,41 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Application;
+
+use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
+use App\{{ context }}\{{ plural }}\Domain\{{ aggregate }};
+use ComplexHeart\Domain\Contracts\Events\EventBus;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Class {{ name }}
+ *
+ * An aggregate only records its domain events. Publishing them is this
+ * layer's job, and nothing else does it: without a use case like this one
+ * the events pile up on the instance and vanish with it.
+ */
+final readonly class {{ name }}
+{
+    public function __construct(
+        private {{ aggregate }}Repository $repository,
+        private EventBus $eventBus,
+    ) {}
+
+    /**
+     * @param  array<string, mixed>  $input
+     */
+    public function __invoke(array $input): {{ aggregate }}
+    {
+        // Publishing inside the transaction keeps a failing listener from
+        // leaving a persisted aggregate behind a request that never finished.
+        return DB::transaction(function () use ($input): {{ aggregate }} {
+            ${{ variable }} = $this->repository->save({{ aggregate }}::new($input));
+
+            ${{ variable }}->publishDomainEvents($this->eventBus);
+
+            return ${{ variable }};
+        });
+    }
+}

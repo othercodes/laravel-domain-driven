@@ -1,0 +1,25 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Application;
+
+use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
+use App\{{ context }}\{{ plural }}\Domain\{{ aggregate }};
+
+/**
+ * Class {{ name }}
+ *
+ * One use case, one public entry point. It talks to the domain through the
+ * repository contract, never to Eloquent, which is what keeps this layer
+ * testable and the architecture rules satisfied.
+ */
+final readonly class {{ name }}
+{
+    public function __construct(private {{ aggregate }}Repository $repository) {}
+
+    public function __invoke({{ aggregate }} ${{ variable }}): {{ aggregate }}
+    {
+        return $this->repository->save(${{ variable }});
+    }
+}

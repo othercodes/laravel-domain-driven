@@ -150,11 +150,24 @@ resolvable at all. Everything else is opt in, because real aggregates rarely nee
 The table name defaults to the pluralised aggregate. Two contexts may each own an `Invoice`, but
 only one can create the `invoices` table, so `--table=billing_invoices` renames it for the second.
 
-An aggregate records its domain events; publishing them belongs to a use case, which injects
-`EventBus` and calls `publishDomainEvents()` inside the transaction that saved the aggregate. Until
-one exists the events go nowhere, so `--events` prints the two lines that close the loop.
+An aggregate records its domain events; publishing them belongs to the application layer, which is
+what the last two commands fill in:
 
-Both commands only ever add. Run one again with a flag you skipped and it writes what is missing,
+```bash
+./vendor/bin/sail artisan ldd:make:use-case Billing Invoice CreateInvoice --publishes
+./vendor/bin/sail artisan ldd:make:event-handler Billing Invoice NotifyAccounting --queued
+```
+
+`--publishes` writes the idiom that closes the loop: save through the repository and publish the
+recorded events inside the same transaction, so a failing listener cannot leave the aggregate
+persisted. Without it the events pile up on the instance and vanish with it.
+
+The handler is the one that needs wiring. It is declared in the provider's `$events`, and one that
+is missing from there is simply never called — which is why the command refuses to add a second
+handler for an event that already has one, rather than leave two entries under a key where PHP
+keeps only the last.
+
+All four commands only ever add. Run one again with a flag you skipped and it writes what is missing,
 leaves every file already on disk alone — your migration may have been applied, and the provider
 carries wiring no stub knows about — and prints the lines to add by hand.
 

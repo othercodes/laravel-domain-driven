@@ -1,0 +1,21 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Application\EventHandlers;
+
+use App\{{ context }}\{{ plural }}\Domain\Events\{{ event }};
+
+/**
+ * Class {{ name }}
+ *
+ * Registered in {{ context }}ServiceProvider::$events. A handler that is not
+ * declared there is simply never called, with nothing to say so.
+ */
+final readonly class {{ name }}{{ handlerImplements }}
+{
+    public function handle({{ event }} $event): void
+    {
+        //
+    }
+}

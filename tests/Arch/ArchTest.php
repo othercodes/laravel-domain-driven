@@ -129,7 +129,7 @@ arch('middleware has handle method')
 | on their own context or on Shared Domain. They must never reach into
 | another BC's internals or into Shared Infrastructure.
 |
-| The Shared context is a foundation layer — it must never reference
+| The Shared context is a foundation layer, so it must never reference
 | any specific bounded context.
 |
 | Adding a bounded context needs no change here: its rules are generated

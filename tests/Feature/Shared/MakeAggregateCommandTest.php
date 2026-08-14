@@ -487,7 +487,7 @@ test('it fails when the context provider has nothing to wire', function () {
     File::put($provider, "<?php\n\nnamespace App\ScaffoldFixture;\n\nuse ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;\n\nclass ScaffoldFixtureServiceProvider extends BoundedContextServiceProvider\n{\n}\n");
 
     // Reporting success would leave an aggregate whose repository contract
-    // resolves to nothing — the whole point of the wiring step.
+    // resolves to nothing, which is the whole point of the wiring step.
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
         ->assertFailed();
 

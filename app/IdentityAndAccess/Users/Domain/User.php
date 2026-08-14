@@ -48,7 +48,7 @@ class User extends Authenticatable implements MustVerifyEmail
      * Creates a new User and registers the UserCreated domain event.
      *
      * The identifier is assigned up front so the event can carry it before
-     * the aggregate is persisted. A caller may supply its own id — it is set
+     * the aggregate is persisted. A caller may supply its own id, which is set
      * explicitly rather than through $fillable, so mass assignment is never
      * a way to choose an identifier.
      *

@@ -65,7 +65,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         // The table name is interpolated into the model's $table property and
         // into Schema::create(), so a quote or a space in it produces two
-        // files that do not parse — and the migrations path is registered as a
+        // files that do not parse. The migrations path is registered as a
         // directory, which takes `migrate` down with it.
         if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $this->table) !== 1) {
             $this->components->error("The table name must be a valid identifier, [{$this->table}] is not.");
@@ -183,7 +183,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * in this application that is the job of a use case: the repository only
      * persists. Nothing generated here closes that loop, and an event that is
      * never published fails the way everything else in these commands is
-     * built to prevent — silently.
+     * built to prevent: silently.
      */
     private function printEventHints(string $path): void
     {
@@ -412,7 +412,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
     /**
      * Binds the repository and, when a migration was generated, registers its
      * path. Without this the aggregate would resolve nothing and its tables
-     * would never be created — silently, in both cases.
+     * would never be created, silently in both cases.
      */
     private function wireProvider(): bool
     {

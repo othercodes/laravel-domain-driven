@@ -407,6 +407,13 @@ final class MakeAggregateCommand extends ScaffoldCommand
         if ($this->wants('api')) {
             $this->put("{$path}/Infrastructure/Http/Controllers/API/{$this->aggregate}Controller.php", $this->stub('aggregate.api-controller', $this->replacements()));
         }
+
+        // Both controllers publish through it, so it belongs to either flag.
+        // Neither should be handing out the model itself: everything on it
+        // would go over the wire, including whatever the next migration adds.
+        if ($this->wants('web') || $this->wants('api')) {
+            $this->put("{$path}/Infrastructure/Http/Resources/{$this->aggregate}Resource.php", $this->stub('aggregate.resource', $this->replacements()));
+        }
     }
 
     /**

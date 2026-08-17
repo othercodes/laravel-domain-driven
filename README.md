@@ -160,9 +160,15 @@ resolvable at all. Everything else is opt in, because real aggregates rarely nee
 | `--factory` | A model factory, routed through the aggregate's `new()` |
 | `--events` | A `Created` domain event, recorded by `new()` and published by you |
 | `--requests` | A form request |
-| `--web` | An Inertia controller, rendering through `InertiaController` |
-| `--api` | An API controller |
+| `--web` | An Inertia controller, rendering through `InertiaController`, and a resource |
+| `--api` | An API controller, and a resource |
 | `--all` | All of the above |
+
+Either controller flag also writes an `{Aggregate}Resource`, because both of them publish and neither should hand
+out the model itself. It starts closed, with `id` and nothing else, so an attribute reaches the outside because you
+listed it rather than because a migration added it. The API controller returns the resource and Laravel wraps it in
+a `data` key; the Inertia controller passes `resolve($request)`, since the prop name is already the envelope there
+and Inertia would otherwise call `toArray()` directly, skipping the filtering that `when()` relies on.
 
 The table name defaults to the pluralised aggregate. Two contexts may each own an `Invoice`, but
 only one can create the `invoices` table, so `--table=billing_invoices` renames it for the second.

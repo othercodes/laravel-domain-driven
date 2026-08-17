@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\{{ context }}\{{ plural }}\Infrastructure\Http\Controllers\API;
 
 use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
-use Illuminate\Http\JsonResponse;
+use App\{{ context }}\{{ plural }}\Infrastructure\Http\Resources\{{ aggregate }}Resource;
 
 /**
  * Class {{ aggregate }}Controller
@@ -17,10 +17,13 @@ class {{ aggregate }}Controller
 {
     public function __construct(private readonly {{ aggregate }}Repository $repository) {}
 
-    public function show(string $id): JsonResponse
+    public function show(string $id): {{ aggregate }}Resource
     {
+        // Through the resource rather than the model: returning the aggregate
+        // itself publishes every attribute it happens to hold.
+        //
         // abort() rather than the domain's NotFound: an unhandled domain
         // exception would answer 500 to an ordinary missing record.
-        return new JsonResponse($this->repository->find($id) ?? abort(404));
+        return new {{ aggregate }}Resource($this->repository->find($id) ?? abort(404));
     }
 }

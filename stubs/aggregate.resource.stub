@@ -1,0 +1,36 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Infrastructure\Http\Resources;
+
+use App\{{ context }}\{{ plural }}\Domain\{{ aggregate }};
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/**
+ * Class {{ aggregate }}Resource
+ *
+ * One definition of what a {{ aggregate }} publishes, for the API and for the
+ * Inertia page alike. It starts closed: an attribute appears here because
+ * somebody decided it should, not because it happens to be on the model.
+ *
+ * The API controller returns this and Laravel wraps it in a `data` key, which
+ * is where a paginated listing would later put its `meta`. The Inertia
+ * controller passes resolve() instead, since the prop name is already the
+ * envelope there.
+ *
+ * @mixin {{ aggregate }}
+ */
+class {{ aggregate }}Resource extends JsonResource
+{
+    /**
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+        ];
+    }
+}

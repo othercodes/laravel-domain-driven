@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\{{ context }}\{{ plural }}\Infrastructure\Http\Controllers;
 
 use App\{{ context }}\{{ plural }}\Domain\Contracts\{{ aggregate }}Repository;
+use App\{{ context }}\{{ plural }}\Infrastructure\Http\Resources\{{ aggregate }}Resource;
 use App\Shared\Infrastructure\Http\Controllers\InertiaController;
 use Illuminate\Http\Request;
 use Inertia\Response;
@@ -29,8 +30,11 @@ class {{ aggregate }}Controller extends InertiaController
         // unhandled one would answer 500 to an ordinary missing record.
         ${{ variable }} = $this->repository->find($id) ?? abort(404);
 
+        // resolve() rather than the resource itself: Inertia resolves an
+        // Arrayable by calling toArray() directly, which skips the filtering
+        // and leaves a MissingValue object wherever a when() dropped a field.
         return $this->render($request, '{{ plural }}/Show', [
-            '{{ variable }}' => ${{ variable }},
+            '{{ variable }}' => (new {{ aggregate }}Resource(${{ variable }}))->resolve($request),
         ]);
     }
 }

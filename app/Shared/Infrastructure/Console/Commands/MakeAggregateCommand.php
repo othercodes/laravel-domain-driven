@@ -32,6 +32,10 @@ final class MakeAggregateCommand extends ScaffoldCommand
         {--web : Add an Inertia controller}
         {--api : Add an API controller}
         {--all : Everything above}
+        {--mail=* : A mailable in Application/Mail, e.g. --mail=InvoicePaid}
+        {--job=* : A queued job in Application/Jobs}
+        {--notification=* : A notification in Application/Notifications}
+        {--command=* : An Artisan command in Infrastructure/Console/Commands, wired into $commands}
         {--table= : Table name, defaults to the pluralised aggregate}';
 
     protected $description = 'Create an aggregate inside a bounded context';
@@ -127,7 +131,11 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
 
         $this->writeOptional($path);
-        $wired = $this->wireProvider();
+
+        // Threaded through rather than kept on the command: Artisan reuses the
+        // instance between calls in the same process, so a property here would
+        // carry one run's console commands into the next.
+        $wired = $this->wireProvider($this->writeDelegated());
 
         $this->newLine();
         $this->components->info("Aggregate [{$this->aggregate}] ".($modelExisted ? 'updated' : 'created')." in [{$this->context}].");
@@ -468,6 +476,60 @@ final class MakeAggregateCommand extends ScaffoldCommand
         if ($this->wants('web') || $this->wants('api')) {
             $this->put("{$path}/Infrastructure/Http/Resources/{$this->aggregate}Resource.php", $this->stub('aggregate.resource', $this->replacements()));
         }
+
+    }
+
+    /**
+     * Generates the pieces Laravel already has a generator for, in the place
+     * this architecture puts them rather than the one the generator defaults
+     * to. Nothing here needs a stub of our own: what makes a mailable belong
+     * to an aggregate is where it lives, not what is in it.
+     *
+     * These take names instead of being on or off, so --all does not cover
+     * them. There is no obvious name for an aggregate's mailable, and one
+     * aggregate often wants several.
+     *
+     * Returns the console commands to declare in the provider.
+     *
+     * @return list<string>
+     */
+    private function writeDelegated(): array
+    {
+        $base = "App\\{$this->context}\\{$this->plural}";
+        $consoleCommands = [];
+
+        $delegations = [
+            ['mail', 'make:mail', "{$base}\\Application\\Mail"],
+            ['job', 'make:job', "{$base}\\Application\\Jobs"],
+            ['notification', 'make:notification', "{$base}\\Application\\Notifications"],
+            ['command', 'make:command', "{$base}\\Infrastructure\\Console\\Commands"],
+        ];
+
+        foreach ($delegations as [$option, $generator, $namespace]) {
+            /** @var list<string> $names */
+            $names = (array) $this->option($option);
+
+            foreach ($names as $name) {
+                // Same guard as every other name this command takes: the
+                // generators interpolate it straight into a class declaration.
+                $class = $this->identifier($name, $option);
+
+                if ($class === null) {
+                    continue;
+                }
+
+                $written = $this->generate($generator, "{$namespace}\\{$class}");
+
+                // A console command Laravel does not autodiscover, since it
+                // only ever scans app/Console/Commands, so the provider has to
+                // declare it or the command simply never exists.
+                if ($option === 'command' && $written !== null) {
+                    $consoleCommands[] = $written;
+                }
+            }
+        }
+
+        return $consoleCommands;
     }
 
     /**
@@ -475,7 +537,10 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * path. Without this the aggregate would resolve nothing and its tables
      * would never be created, silently in both cases.
      */
-    private function wireProvider(): bool
+    /**
+     * @param  list<string>  $consoleCommands
+     */
+    private function wireProvider(array $consoleCommands): bool
     {
         $file = app_path("{$this->context}/{$this->context}ServiceProvider.php");
 
@@ -512,6 +577,18 @@ final class MakeAggregateCommand extends ScaffoldCommand
             if (! in_array($path, $declared->propertyStrings('migrations'), true)) {
                 $contents = $this->appendToArray($contents, 'migrations', "        __DIR__.'{$path}',");
             }
+        }
+
+        foreach ($consoleCommands as $class) {
+            // Asked of the declaration rather than of the flag, so a re-run
+            // that regenerates nothing does not declare the command twice and
+            // register it with Artisan twice over.
+            if ($contents === null || $declared->references($class)) {
+                continue;
+            }
+
+            $contents = $this->withImport($contents, $class);
+            $contents = $contents === null ? null : $this->appendToArray($contents, 'commands', '        '.class_basename($class).'::class,');
         }
 
         // Reporting a green "wired" after a rewrite that matched nothing is

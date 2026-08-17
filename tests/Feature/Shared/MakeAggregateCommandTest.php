@@ -533,8 +533,17 @@ test('it warns when the route file the hint points at does not exist', function 
 });
 
 test('everything it generates parses', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--all' => true])
-        ->assertSuccessful();
+    // The delegated flags are named here too: --all does not cover them, and
+    // the provider they edit is the file most likely to end up unparseable.
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture',
+        'name' => 'Widget',
+        '--all' => true,
+        '--mail' => ['WidgetShipped'],
+        '--job' => ['RebuildWidgetIndex'],
+        '--notification' => ['WidgetReady'],
+        '--command' => ['SyncWidgets'],
+    ])->assertSuccessful();
 
     // The fixture is deleted in teardown, so CI's Pint, PHPStan and arch legs
     // never see the generated code. Without this, a typo in any stub ships
@@ -547,6 +556,84 @@ test('everything it generates parses', function () {
         expect(php_parses($file->getPathname()))
             ->toBeTrue("{$file->getRelativePathname()} does not parse");
     }
+});
+
+/*
+ * The delegated flags hand the writing to Laravel's own generators and keep
+ * only the placement. What is worth asserting is the placement, since passing
+ * anything less than the full class name puts the file in app/Mail instead.
+ */
+test('the delegated flags place Laravel generators inside the aggregate', function () {
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture',
+        'name' => 'Widget',
+        '--mail' => ['WidgetShipped'],
+        '--job' => ['RebuildWidgetIndex'],
+        '--notification' => ['WidgetReady'],
+        '--command' => ['SyncWidgets'],
+    ])->assertSuccessful();
+
+    expect(app_path('ScaffoldFixture/Widgets/Application/Mail/WidgetShipped.php'))->toBeFile()
+        ->and(app_path('ScaffoldFixture/Widgets/Application/Jobs/RebuildWidgetIndex.php'))->toBeFile()
+        ->and(app_path('ScaffoldFixture/Widgets/Application/Notifications/WidgetReady.php'))->toBeFile()
+        ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Console/Commands/SyncWidgets.php'))->toBeFile();
+
+    // Nothing landed in the namespace the generators default to.
+    expect(app_path('Mail/ScaffoldFixture'))->not->toBeDirectory()
+        ->and(File::get(app_path('ScaffoldFixture/Widgets/Application/Mail/WidgetShipped.php')))
+        ->toContain('namespace App\ScaffoldFixture\Widgets\Application\Mail;');
+});
+
+/*
+ * Laravel only autodiscovers app/Console/Commands, so a console command
+ * anywhere else exists as a file and as nothing else until the provider says
+ * so. That is the failure this flag is really for.
+ */
+test('a delegated console command is declared in the provider', function () {
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncWidgets'],
+    ])->assertSuccessful();
+
+    expect(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')))
+        ->toContain('use App\ScaffoldFixture\Widgets\Infrastructure\Console\Commands\SyncWidgets;')
+        ->toContain('SyncWidgets::class,');
+});
+
+test('it declares a console command an earlier run left unwired', function () {
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncWidgets'],
+    ])->assertSuccessful();
+
+    // The file stays, the wiring goes: the command has to register what is on
+    // disk, not only what this run happened to write.
+    File::put($provider, str_replace(
+        ["use App\ScaffoldFixture\Widgets\Infrastructure\Console\Commands\SyncWidgets;\n", '        SyncWidgets::class,'."\n"],
+        '',
+        File::get($provider)
+    ));
+
+    // The revert is the whole premise, so it is asserted rather than assumed:
+    // a str_replace that matched nothing would make this test vacuous.
+    expect(File::get($provider))->not->toContain('SyncWidgets');
+
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncWidgets'],
+    ])->assertSuccessful();
+
+    expect(File::get($provider))->toContain('SyncWidgets::class,');
+});
+
+test('it does not declare a console command twice', function () {
+    foreach ([1, 2] as $run) {
+        $this->artisan('ldd:make:aggregate', [
+            'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncWidgets'],
+        ])->assertSuccessful();
+    }
+
+    expect(substr_count(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')), 'SyncWidgets::class,'))
+        ->toBe(1);
 });
 
 /*

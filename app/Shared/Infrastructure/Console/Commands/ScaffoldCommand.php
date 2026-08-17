@@ -165,6 +165,61 @@ abstract class ScaffoldCommand extends Command
     }
 
     /**
+     * Writes a class through one of Laravel's own make:* generators.
+     *
+     * The placement is ours and the stub is theirs. Passing the fully
+     * qualified name is what puts the file outside the generator's default
+     * directory: each one prepends its own namespace, App\Mail and the rest,
+     * to any name that does not already start at the root.
+     *
+     * Returns the class that is on disk afterwards, whether this call wrote it
+     * or found it already there, and null only when it could not be written.
+     * The caller wires what exists, not what it happened to create, so that a
+     * re-run still registers a class an earlier one wrote but never wired.
+     *
+     * @param  array<string, mixed>  $options
+     */
+    protected function generate(string $generator, string $fqcn, array $options = []): ?string
+    {
+        $path = app_path(str_replace('\\', '/', Str::after($fqcn, 'App\\')).'.php');
+
+        // Laravel's generators report "already exists" and still exit 0, so
+        // this is ours to check: these commands only ever add, and a re-run
+        // has to say "skipped" rather than print their error as if it failed.
+        if ($this->files->exists($path)) {
+            $this->components->twoColumnDetail($this->relative($path), '<fg=yellow>exists, skipped</>');
+
+            return $fqcn;
+        }
+
+        $this->callSilently($generator, ['name' => $fqcn] + $options);
+
+        return $this->wrote($generator, $path) ? $fqcn : null;
+    }
+
+    /**
+     * Whether the generator left a file behind, reported either way.
+     *
+     * Split out because the check is what makes generate() honest: silencing
+     * the generator keeps the output uniform and swallows any reason it
+     * declined, so the file is the only thing left worth believing. Static
+     * analysis reads two exists() calls in one scope as one answer, which is
+     * exactly the assumption being avoided here.
+     */
+    private function wrote(string $generator, string $path): bool
+    {
+        if (! $this->files->exists($path)) {
+            $this->components->twoColumnDetail($this->relative($path), "<fg=red>{$generator} wrote nothing</>");
+
+            return false;
+        }
+
+        $this->components->twoColumnDetail($this->relative($path), '<fg=green>created</>');
+
+        return true;
+    }
+
+    /**
      * Inserts an import in the order Pint's ordered_imports fixer expects.
      *
      * Returns null when the import cannot be placed, so the caller reports a

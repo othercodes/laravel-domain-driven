@@ -165,21 +165,14 @@ resolvable at all. Everything else is opt in, because real aggregates rarely nee
 | `--api` | An API controller, and a resource |
 | `--all` | All of the above |
 
-Four more take a name rather than being on or off, and hand the writing to Laravel's own generator. `--all` does
-not cover them, since there is no default name for a mailable and one aggregate often wants several. Repeat a flag
-to get more than one:
+Four more take a name instead of being on or off, and can be repeated. `--all` does not cover them:
 
-| Flag | Delegates to | Lands in |
-|---|---|---|
-| `--mail=InvoicePaid` | `make:mail` | `Application/Mail` |
-| `--job=RebuildIndex` | `make:job` | `Application/Jobs` |
-| `--notification=InvoiceDue` | `make:notification` | `Application/Notifications` |
-| `--command=SyncInvoices` | `make:command` | `Infrastructure/Console/Commands`, plus `$commands` |
-
-The stub stays Laravel's; only the placement is ours, which is the whole point: what makes a mailable belong to an
-aggregate is where it lives, not what is in it. The console command is the one that also needs wiring, because
-Laravel only autodiscovers `app/Console/Commands` and one anywhere else is a file and nothing more until the
-provider declares it.
+| Flag | Adds |
+|---|---|
+| `--mail=InvoicePaid` | A mailable in `Application/Mail` |
+| `--job=RebuildIndex` | A queued job in `Application/Jobs` |
+| `--notification=InvoiceDue` | A notification in `Application/Notifications` |
+| `--command=SyncInvoices` | An Artisan command in `Infrastructure/Console/Commands`, and its entry in `$commands` |
 
 Either controller flag also writes an `{Aggregate}Resource`, because both of them publish and neither should hand
 out the model itself. It starts closed, with `id` and nothing else, so an attribute reaches the outside because you
@@ -391,26 +384,21 @@ use the `IsDomainEvent` trait, which supplies `eventId`, `eventName`, `payload` 
 identifiers and scalars, never Eloquent models. That is what makes `payload()` meaningful and `SerializesModels`
 unnecessary. An aggregate records them; a use case publishes them through the `EventBus`.
 
-**`ldd:make:aggregate` is the front door; Laravel's generators do the writing where they can.** There is no
-`ldd:make:mail`, and there does not need to be. A generator only writes outside its own default directory if you
-give it the fully qualified name, so the flag does that for you:
+**Laravel's own generators need the full class name.** The flags above cover the usual ones. For anything else,
+`make:policy`, `make:observer`, `make:rule` and the rest, name the class in full and it lands where you say:
 
 ```bash
-./vendor/bin/sail artisan ldd:make:aggregate Billing Invoice --mail=InvoicePaid
-# runs: make:mail 'App\Billing\Invoices\Application\Mail\InvoicePaid'
+./vendor/bin/sail artisan make:policy 'App\Billing\Invoices\Infrastructure\Http\Policies\InvoicePolicy'
 ```
 
-That is worth knowing for anything the flags do not cover, `make:policy`, `make:observer`, `make:rule` and the rest.
-Name them in full and they land where you say; drop the `App\` and you get `app/Policies/Billing/...` instead,
-because each generator prepends its own namespace to a name that does not already start at the root. Two of them
-ignore the name entirely: `make:seeder` and `make:factory` are hard-wired to `database/`, which is why `--seeder`
-writes from a stub of ours rather than delegating.
+Drop the `App\` and you get `app/Policies/Billing/...` instead, because each generator prepends its own namespace to
+a name that does not already start at the root. `make:seeder` and `make:factory` ignore the name either way and
+always write into `database/`.
 
 **`DatabaseSeeder` is the one file that reaches into every context.** Seeders live with their aggregate under
 `Infrastructure/Persistence/Seeders`, and only run once `DatabaseSeeder` lists them, in the order it lists them.
-`ldd:make:aggregate --seeder` writes the seeder and prints the entry rather than appending it, because reference
-data another seeder depends on has to go first and no command can work that out. Fixtures go in `$fixtures`, which
-runs only outside production: a starter kit that seeds a known account everywhere ships a back door.
+`--seeder` writes the class but leaves the entry to you, since a seeder whose reference data another one depends on
+has to go first. Sample data goes in `$fixtures` instead, which never runs in production.
 
 ## ⚠️ Disclaimer
 

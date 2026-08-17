@@ -649,6 +649,20 @@ test('it does not declare a repeated console command flag twice', function () {
         ->toBe(1);
 });
 
+test('it fails when a delegated name is refused', function () {
+    // Case is a PHP reserved word, so no mailable is written. The command has
+    // to say so in the exit code: a script chaining on it would otherwise
+    // carry on as though the mailable were there.
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--mail' => ['Case'],
+    ])->assertFailed();
+
+    // Failure is about what is missing, not a rollback: the aggregate it did
+    // manage to write stays, so re-running fills in the rest.
+    expect(app_path('ScaffoldFixture/Widgets/Domain/Widget.php'))->toBeFile()
+        ->and(app_path('ScaffoldFixture/Widgets/Application/Mail'))->not->toBeDirectory();
+});
+
 /*
  * A console command's name is free text, so nothing stops it colliding with
  * another aggregate's or with something the provider already imports. Two use

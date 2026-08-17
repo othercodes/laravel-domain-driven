@@ -135,7 +135,8 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // Threaded through rather than kept on the command: Artisan reuses the
         // instance between calls in the same process, so a property here would
         // carry one run's console commands into the next.
-        $wired = $this->wireProvider($this->writeDelegated());
+        $delegated = $this->writeDelegated();
+        $wired = $this->wireProvider($delegated['commands']);
 
         $this->newLine();
         $this->components->info("Aggregate [{$this->aggregate}] ".($modelExisted ? 'updated' : 'created')." in [{$this->context}].");
@@ -146,8 +147,10 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $this->printRouteHints();
 
         // The files exist but the context does not know about them, so a
-        // script chaining on this command must not treat it as done.
-        return $wired ? self::SUCCESS : self::FAILURE;
+        // script chaining on this command must not treat it as done. A name
+        // this command refused counts the same: something was asked for and
+        // is not there.
+        return $wired && $delegated['complete'] ? self::SUCCESS : self::FAILURE;
     }
 
     /**
@@ -488,14 +491,18 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * them. There is no obvious name for an aggregate's mailable, and one
      * aggregate often wants several.
      *
-     * Returns the console commands to declare in the provider.
+     * Returns the console commands to declare in the provider, and whether
+     * everything asked for is actually there. A name this command refused, or
+     * a generator that declined, has to reach the exit code: printing an error
+     * and answering success is how a chained script carries on regardless.
      *
-     * @return list<string>
+     * @return array{commands: list<string>, complete: bool}
      */
     private function writeDelegated(): array
     {
         $base = "App\\{$this->context}\\{$this->plural}";
         $consoleCommands = [];
+        $complete = true;
 
         $delegations = [
             ['mail', 'make:mail', "{$base}\\Application\\Mail"],
@@ -514,21 +521,29 @@ final class MakeAggregateCommand extends ScaffoldCommand
                 $class = $this->identifier($name, $option);
 
                 if ($class === null) {
+                    $complete = false;
+
                     continue;
                 }
 
                 $written = $this->generate($generator, "{$namespace}\\{$class}");
 
+                if ($written === null) {
+                    $complete = false;
+
+                    continue;
+                }
+
                 // A console command Laravel does not autodiscover, since it
                 // only ever scans app/Console/Commands, so the provider has to
                 // declare it or the command simply never exists.
-                if ($option === 'command' && $written !== null) {
+                if ($option === 'command') {
                     $consoleCommands[] = $written;
                 }
             }
         }
 
-        return $consoleCommands;
+        return ['commands' => $consoleCommands, 'complete' => $complete];
     }
 
     /**
@@ -602,7 +617,11 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // production unnoticed. Say so instead.
         if ($contents === null) {
             $this->components->twoColumnDetail($this->relative($file), '<fg=red>could not be wired</>');
-            $this->components->warn("Add the binding and, if generated, the migration path to {$this->context}ServiceProvider by hand.");
+
+            // The file is only written once, at the end, so a null here means
+            // none of it landed. Naming all three matters: a console command
+            // left out of $commands is one Artisan never registers.
+            $this->components->warn("Nothing was written to {$this->context}ServiceProvider. Add the repository binding, the migration path if one was generated, and any console command, by hand.");
 
             return false;
         }

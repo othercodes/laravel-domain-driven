@@ -4,38 +4,39 @@
 <a href="https://www.php.net/releases/8.4/en.php"><img src="https://img.shields.io/badge/PHP-8.4-777BB4.svg?style=flat&logo=php" alt="PHP 8.4"/></a>
 <a href="https://github.com/othercodes/laravel-domain-driven/actions/workflows/test.yml"><img src="https://github.com/othercodes/laravel-domain-driven/actions/workflows/test.yml/badge.svg" alt="Test"/></a>
 
-Welcome to Laravel Domain Driven! This is a Laravel starter designed to help you build applications using Hexagonal
-Architecture and Domain-Driven Design (DDD).
+A Laravel 13 starter that arranges an application into bounded contexts, aggregates and layers, following
+Domain-Driven Design and Hexagonal Architecture.
 
-With this starter, your project is organized into clear layers, keeping your core business logic separate from other
-parts of your application. This makes your code easier to maintain and adapt over time. By using DDD, you can model your
-business problems more clearly and build software that is easy to change as your needs evolve.
-
-Whether you're starting a new project or improving an existing one, Laravel Domain Driven gives you a strong foundation
-for building flexible, high-quality applications.
+It comes with authentication, two-factor, session management and profiles built on Fortify with Inertia and Vue 3,
+a Pest suite that enforces the layering, and `ldd:make:*` commands that scaffold new contexts and aggregates
+together with the wiring they need. Sail is the supported environment, with PHP 8.4 and Node 24 pinned.
 
 ## 🤔 Why use Laravel Domain Driven?
 
-**Laravel Domain Driven** brings together the power of **Laravel**, **Domain-Driven Design (DDD)**, and **Hexagonal
-Architecture**, offering key benefits:
+Plenty of repositories publish a DDD directory tree. A tree is the easy part, and it is also the part that erodes
+first. What this starter adds is that the structure is enforced, generated, and already applied to something real.
 
-- **Clear and Organized Code**: DDD and Hexagonal Architecture help keep your business logic separate from other parts
-  of the app, making your code easier to understand and manage.
+- **The architecture is checked, not just described.** A Pest suite fails the build when a Domain layer reaches into
+  Infrastructure, or when one bounded context imports another's internals. The rules are derived from the `app/`
+  listing rather than written out by hand, so a context you add tomorrow is covered the moment it exists, and every
+  context already there starts forbidding it at the same time.
 
-- **Easy to Scale and Update**: This structure allows your application to grow and change over time without needing
-  major rewrites.
+- **The structure is generated, wiring included.** `ldd:make:bounded-context` and `ldd:make:aggregate` write the
+  files and register them: the repository binding, the migration path, the event handler, the console command. Every
+  one of those is a step that fails silently when forgotten, and a layout that costs ten manual steps per aggregate
+  is a layout that gets abandoned on the first deadline.
 
-- **Well-Structured Application**: By combining Laravel’s features with DDD, your project becomes more organized, making
-  it easier to work with.
+- **It ships applied, not as an example.** Registration, login, two-factor, session management and profiles are
+  already rearranged into contexts, aggregates and layers. You read the pattern on features that work, rather than
+  on a `Foo` aggregate you delete on day one.
 
-- **Easier to Test and Maintain**: Hexagonal Architecture focuses on clean design, making it simpler to test and
-  maintain your code.
+- **Bounded contexts are declarative.** A context provider lists what it owns in `$bindings`, `$events`,
+  `$commands`, `$migrations` and `$routes`, and ComplexHeart boots it. Nothing is registered by hand in a boot
+  method, so a context stays something you can read in one screen.
 
-- **The Power of Laravel**: Laravel provides a modern and elegant framework with built-in tools for routing,
-  authentication, database management, and more, helping you develop quickly and efficiently while maintaining
-  high-quality code.
-
-Using **Laravel Domain Driven** helps you build clean, flexible, and long-lasting applications.
+- **Laravel stays Laravel.** The aggregate root is an Eloquent model, and Fortify, Inertia, queues, factories and
+  the rest work exactly as their own documentation says. This is a Laravel application rearranged, not a framework
+  built on top of one.
 
 ## ✨ Features
 

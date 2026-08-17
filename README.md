@@ -158,6 +158,7 @@ resolvable at all. Everything else is opt in, because real aggregates rarely nee
 |---|---|
 | `--migration` | A migration, and its path in the provider's `$migrations` |
 | `--factory` | A model factory, routed through the aggregate's `new()` |
+| `--seeder` | A seeder in the context, for you to list in `DatabaseSeeder` |
 | `--events` | A `Created` domain event, recorded by `new()` and published by you |
 | `--requests` | A form request |
 | `--web` | An Inertia controller, rendering through `InertiaController`, and a resource |
@@ -337,6 +338,8 @@ app
                 ├── Migrations
                 │   ├── 0000_00_00_000001_create_users_table.php
                 │   └── 2024_12_04_123046_add_two_factor_columns_to_users_table.php
+                ├── Seeders
+                │   └── UserSeeder.php
                 └── UserFactory.php
 ```
 
@@ -344,12 +347,16 @@ Migrations belong to the aggregate that owns the table, not to `database/migrati
 have. Each one is registered through the `$migrations` array on the context's provider, and forgetting that entry is
 the quiet failure `ldd:make:aggregate --migration` exists to prevent.
 
+Seeders and factories follow the table. `database/` holds neither, and `database/seeders` is gone: `composer.json`
+points the `Database\Seeders` namespace at `app/Shared/Infrastructure/Persistence/Seeders` instead, so plain
+`db:seed` still resolves `DatabaseSeeder` with no `--class`.
+
 This structure ensures that each part of the application is clearly defined, maintainable, and focused on its specific
 domain, while following DDD and Hexagonal Architecture principles.
 
 ## 📐 Conventions
 
-Four things surprise people arriving from stock Laravel.
+Six things surprise people arriving from stock Laravel.
 
 **`routes/web.php` is empty on purpose.** Each context publishes its own routes through the `$routes` array on its
 provider, from `{Context}/Shared/Infrastructure/Http/Routes/`. `BoundedContextServiceProvider::bootRoutes()` applies
@@ -367,6 +374,26 @@ and the architecture rules exempt it by detecting `newFactory` rather than listi
 use the `IsDomainEvent` trait, which supplies `eventId`, `eventName`, `payload` and `occurredOn`. They carry
 identifiers and scalars, never Eloquent models. That is what makes `payload()` meaningful and `SerializesModels`
 unnecessary. An aggregate records them; a use case publishes them through the `EventBus`.
+
+**Laravel's own generators need the full class name.** There is no `ldd:make:mail`, and there does not need to be:
+`make:mail`, `make:job`, `make:notification` and `make:command` all place a class wherever you name it, as long as
+you name it in full.
+
+```bash
+./vendor/bin/sail artisan make:mail 'App\Billing\Invoices\Application\Mail\InvoicePaid'
+```
+
+Drop the `App\` and you get `app/Mail/Billing/...` instead, because each generator prepends its own default
+namespace to anything that does not already start at the root. So `Application/{Mail,Jobs,Notifications}` and
+`Infrastructure/Console/Commands` are conventions, not commands. A console command placed there needs one more step:
+Laravel only autodiscovers `app/Console/Commands`, so list it in the context provider's `$commands`, the way
+`SharedServiceProvider` lists the `ldd:make:*` commands.
+
+**`DatabaseSeeder` is the one file that reaches into every context.** Seeders live with their aggregate under
+`Infrastructure/Persistence/Seeders`, and only run once `DatabaseSeeder` lists them, in the order it lists them.
+`ldd:make:aggregate --seeder` writes the seeder and prints the entry rather than appending it, because reference
+data another seeder depends on has to go first and no command can work that out. Fixtures go in `$fixtures`, which
+runs only outside production: a starter kit that seeds a known account everywhere ships a back door.
 
 ## ⚠️ Disclaimer
 

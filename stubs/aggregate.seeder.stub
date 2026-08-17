@@ -1,0 +1,24 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\{{ context }}\{{ plural }}\Infrastructure\Persistence\Seeders;
+
+{{ seederUses }}use Illuminate\Database\Seeder;
+
+/**
+ * Class {{ aggregate }}Seeder
+ *
+ * Seeds {{ plural }}. It lives with the aggregate rather than in database/,
+ * so the data an aggregate needs to exist travels with the aggregate.
+ *
+ * Nothing runs it until DatabaseSeeder lists it, which is deliberate: seeders
+ * run in the order they are listed, and only the application knows which
+ * reference data has to be there first.
+ */
+class {{ aggregate }}Seeder extends Seeder
+{
+    public function run(): void
+    {
+{{ seederBody }}    }
+}

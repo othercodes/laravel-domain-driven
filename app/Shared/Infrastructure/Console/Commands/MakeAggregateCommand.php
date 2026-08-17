@@ -26,6 +26,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         {name : The aggregate root name, singular, e.g. Invoice}
         {--migration : Add a migration and register its path}
         {--factory : Add a model factory}
+        {--seeder : Add a seeder and say how to register it}
         {--events : Add a Created domain event and record it}
         {--requests : Add a form request}
         {--web : Add an Inertia controller}
@@ -133,6 +134,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         $this->printModelHints($path, $modelExisted);
         $this->printEventHints($path);
+        $this->printSeederHints();
         $this->printRouteHints();
 
         // The files exist but the context does not know about them, so a
@@ -207,6 +209,40 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $this->line("  <fg=gray>\${$this->variable} = \$this->repository->save({$this->aggregate}::new(\$input));</>");
         $this->line("  <fg=gray>\${$this->variable}->publishDomainEvents(\$this->eventBus);  // ComplexHeart\\Domain\\Contracts\\Events\\EventBus</>");
         $this->line('  <fg=gray>// both inside DB::transaction, so a failing listener cannot leave the aggregate persisted</>');
+    }
+
+    /**
+     * A seeder nothing lists never runs, and db:seed reports success either
+     * way. This is printed rather than wired because seeders run in the order
+     * DatabaseSeeder lists them, and appending to the end is a guess at where
+     * this one belongs: reference data another seeder depends on has to go
+     * first, and only the developer knows whether this is that.
+     */
+    private function printSeederHints(): void
+    {
+        if (! $this->wants('seeder')) {
+            return;
+        }
+
+        $file = app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php');
+        $class = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\Seeders\\{$this->aggregate}Seeder";
+
+        // What DatabaseSeeder already lists decides this, not the flag, so
+        // re-running to add another option does not advise a second entry.
+        if (SourceFile::at($file)->references($class)) {
+            return;
+        }
+
+        $this->newLine();
+
+        if (! $this->files->exists($file)) {
+            $this->line("  <fg=yellow>{$this->aggregate}Seeder will not run: no DatabaseSeeder at {$this->relative($file)}.</>");
+
+            return;
+        }
+
+        $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
+        $this->line("  <fg=gray>{$this->aggregate}Seeder::class,  // in \$seeders, or \$fixtures if it is sample data</>");
     }
 
     /**
@@ -380,6 +416,24 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         if ($this->wants('factory')) {
             $this->put("{$path}/Infrastructure/Persistence/{$this->aggregate}Factory.php", $this->stub('aggregate.factory', $this->replacements()));
+        }
+
+        if ($this->wants('seeder')) {
+            // A seeder that calls a factory nobody generated is a fatal error
+            // the first time somebody runs db:seed, so the body follows what
+            // was actually asked for rather than assuming the happy path.
+            // App sorts before Illuminate, so the import goes in ahead of the
+            // Seeder one and Pint's ordered_imports has nothing to fix.
+            $seeder = $this->stub('aggregate.seeder', $this->replacements([
+                '{{ seederUses }}' => $this->wants('factory')
+                    ? "use App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate};\n"
+                    : '',
+                '{{ seederBody }}' => $this->wants('factory')
+                    ? "        {$this->aggregate}::factory()->count(10)->create();\n"
+                    : "        // Nothing here yet. Generate a factory with --factory, then:\n        // {$this->aggregate}::factory()->count(10)->create();\n",
+            ]));
+
+            $this->put("{$path}/Infrastructure/Persistence/Seeders/{$this->aggregate}Seeder.php", $seeder);
         }
 
         if ($this->wants('migration')) {

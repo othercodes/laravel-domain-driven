@@ -549,12 +549,58 @@ test('everything it generates parses', function () {
     }
 });
 
+/*
+ * The seeder is the one generated file whose body depends on another flag,
+ * and the only hint pointing at a file outside the context.
+ */
+test('the seeder flag generates a seeder and says to register it', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true])
+        ->expectsOutputToContain('WidgetSeeder::class,')
+        ->assertSuccessful();
+
+    // Without --factory the call is commented out: Widget::factory() would be
+    // fatal the first time somebody ran db:seed.
+    expect(File::get(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Seeders/WidgetSeeder.php')))
+        ->toContain('// Widget::factory()->count(10)->create();')
+        ->not->toContain("\n        Widget::factory()");
+});
+
+test('the seeder calls the factory when one was generated', function () {
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true, '--factory' => true,
+    ])->assertSuccessful();
+
+    expect(File::get(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Seeders/WidgetSeeder.php')))
+        ->toContain('use App\ScaffoldFixture\Widgets\Domain\Widget;')
+        ->toContain('Widget::factory()->count(10)->create();');
+});
+
+test('it does not re-advise a seeder DatabaseSeeder already lists', function () {
+    $databaseSeeder = app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php');
+    $backup = File::get($databaseSeeder);
+
+    File::put($databaseSeeder, str_replace(
+        'use Illuminate\Database\Seeder;',
+        "use App\ScaffoldFixture\Widgets\Infrastructure\Persistence\Seeders\WidgetSeeder;\nuse Illuminate\Database\Seeder;",
+        str_replace('private array $seeders = [];', 'private array $seeders = [WidgetSeeder::class];', $backup)
+    ));
+
+    try {
+        $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true])
+            ->doesntExpectOutputToContain('WidgetSeeder::class,')
+            ->assertSuccessful();
+    } finally {
+        File::put($databaseSeeder, $backup);
+    }
+});
+
 test('all generates every optional piece', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--all' => true])
         ->assertSuccessful();
 
     expect(app_path('ScaffoldFixture/Widgets/Domain/Events/WidgetCreated.php'))->toBeFile()
         ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/WidgetFactory.php'))->toBeFile()
+        ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Seeders/WidgetSeeder.php'))->toBeFile()
         ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Requests/StoreWidgetRequest.php'))->toBeFile()
         ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Controllers/WidgetController.php'))->toBeFile()
         ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Controllers/API/WidgetController.php'))->toBeFile()

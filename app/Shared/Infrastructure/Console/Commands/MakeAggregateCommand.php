@@ -430,9 +430,9 @@ final class MakeAggregateCommand extends ScaffoldCommand
             // A seeder that calls a factory nobody generated is a fatal error
             // the first time somebody runs db:seed, so the body follows what
             // was actually asked for rather than assuming the happy path.
-            // App sorts before Illuminate, so the import goes in ahead of the
-            // Seeder one and Pint's ordered_imports has nothing to fix.
             $seeder = $this->stub('aggregate.seeder', $this->replacements([
+                // App sorts before Illuminate, so this goes in ahead of the
+                // Seeder import and Pint's ordered_imports has nothing to fix.
                 '{{ seederUses }}' => $this->wants('factory')
                     ? "use App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate};\n"
                     : '',
@@ -476,7 +476,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
         if ($this->wants('web') || $this->wants('api')) {
             $this->put("{$path}/Infrastructure/Http/Resources/{$this->aggregate}Resource.php", $this->stub('aggregate.resource', $this->replacements()));
         }
-
     }
 
     /**
@@ -536,8 +535,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * Binds the repository and, when a migration was generated, registers its
      * path. Without this the aggregate would resolve nothing and its tables
      * would never be created, silently in both cases.
-     */
-    /**
+     *
      * @param  list<string>  $consoleCommands
      */
     private function wireProvider(array $consoleCommands): bool
@@ -579,7 +577,9 @@ final class MakeAggregateCommand extends ScaffoldCommand
             }
         }
 
-        foreach ($consoleCommands as $class) {
+        // array_unique because the same flag can be passed twice in one run,
+        // and the check below only sees the file as it was before this one.
+        foreach (array_unique($consoleCommands) as $class) {
             // Asked of the declaration rather than of the flag, so a re-run
             // that regenerates nothing does not declare the command twice and
             // register it with Artisan twice over.
@@ -587,8 +587,14 @@ final class MakeAggregateCommand extends ScaffoldCommand
                 continue;
             }
 
-            $contents = $this->withImport($contents, $class);
-            $contents = $contents === null ? null : $this->appendToArray($contents, 'commands', '        '.class_basename($class).'::class,');
+            // Written out in full rather than imported under its short name.
+            // A console command's name is free text, so two aggregates in one
+            // context may each have a SyncThings, and one may be called
+            // WidgetRepository like something the provider already imports.
+            // Two use statements resolving to the same short name is a fatal
+            // error that takes the whole application down, not just this
+            // context. $migrations avoids it the same way, by holding strings.
+            $contents = $this->appendToArray($contents, 'commands', "        \\{$class}::class,");
         }
 
         // Reporting a green "wired" after a rewrite that matched nothing is

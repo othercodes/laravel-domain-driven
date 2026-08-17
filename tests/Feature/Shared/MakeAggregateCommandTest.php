@@ -594,9 +594,11 @@ test('a delegated console command is declared in the provider', function () {
         'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncWidgets'],
     ])->assertSuccessful();
 
+    // Declared by its full name and deliberately not imported, so that a
+    // command sharing a short name with anything else here cannot collide.
     expect(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')))
-        ->toContain('use App\ScaffoldFixture\Widgets\Infrastructure\Console\Commands\SyncWidgets;')
-        ->toContain('SyncWidgets::class,');
+        ->toContain('\App\ScaffoldFixture\Widgets\Infrastructure\Console\Commands\SyncWidgets::class,')
+        ->not->toContain('use App\ScaffoldFixture\Widgets\Infrastructure\Console\Commands\SyncWidgets;');
 });
 
 test('it declares a console command an earlier run left unwired', function () {
@@ -609,7 +611,7 @@ test('it declares a console command an earlier run left unwired', function () {
     // The file stays, the wiring goes: the command has to register what is on
     // disk, not only what this run happened to write.
     File::put($provider, str_replace(
-        ["use App\ScaffoldFixture\Widgets\Infrastructure\Console\Commands\SyncWidgets;\n", '        SyncWidgets::class,'."\n"],
+        '        \App\ScaffoldFixture\Widgets\Infrastructure\Console\Commands\SyncWidgets::class,'."\n",
         '',
         File::get($provider)
     ));
@@ -634,6 +636,43 @@ test('it does not declare a console command twice', function () {
 
     expect(substr_count(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')), 'SyncWidgets::class,'))
         ->toBe(1);
+});
+
+test('it does not declare a repeated console command flag twice', function () {
+    // Repeating the flag is the case the re-run guard cannot see: it reads the
+    // provider as it was before this run, not what this run is adding.
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncWidgets', 'SyncWidgets'],
+    ])->assertSuccessful();
+
+    expect(substr_count(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')), 'SyncWidgets::class,'))
+        ->toBe(1);
+});
+
+/*
+ * A console command's name is free text, so nothing stops it colliding with
+ * another aggregate's or with something the provider already imports. Two use
+ * statements resolving to one short name is fatal, and it takes down the whole
+ * application rather than just this context.
+ */
+test('console commands sharing a short name do not collide in the provider', function () {
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncThings'],
+    ])->assertSuccessful();
+
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Gadget', '--command' => ['SyncThings'],
+    ])->assertSuccessful();
+
+    // Named after the repository contract the command imports for itself.
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['WidgetRepository'],
+    ])->assertSuccessful();
+
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    expect(php_parses($provider))->toBeTrue('the provider does not parse')
+        ->and(substr_count(File::get($provider), 'SyncThings::class,'))->toBe(2);
 });
 
 /*

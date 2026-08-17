@@ -110,14 +110,12 @@ Once installed, start the application with the following commands:
 For development with HMR, queue worker, and log tailing:
 
 ```bash
-./vendor/bin/sail up -d
-./vendor/bin/sail npm run dev          # Vite, with HMR on 5173
-./vendor/bin/sail artisan queue:listen --tries=1
-./vendor/bin/sail artisan pail --timeout=0
+composer dev
 ```
 
-There is also a `composer dev` script that runs the four at once, but it calls `php` and `npm` directly, so it needs
-them on your host. Sail is what this project supports.
+That runs the queue worker, the log tail and Vite together inside the Sail container, so Docker is the only thing it
+needs on your host. There is no `artisan serve` among them because the container already serves the application on
+`APP_PORT`, and Vite is reachable on `VITE_PORT` with HMR.
 
 Deploying a rebuilt front end needs one more step:
 

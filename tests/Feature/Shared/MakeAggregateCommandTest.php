@@ -123,6 +123,34 @@ test('the web flag generates an Inertia controller', function () {
 
     expect(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Controllers/API/WidgetController.php'))
         ->not->toBeFile();
+
+    // An Inertia page publishes the same way an API does, so the resource is
+    // not an --api concern.
+    expect(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Resources/WidgetResource.php'))->toBeFile();
+});
+
+test('the controllers publish through a resource, not the model', function () {
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true, '--api' => true,
+    ])->assertSuccessful();
+
+    $resource = app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Resources/WidgetResource.php');
+
+    // Closed to begin with: an attribute is published because somebody listed
+    // it, not because it happens to sit on the model.
+    expect(File::get($resource))
+        ->toContain('class WidgetResource extends JsonResource')
+        ->toContain("'id' => \$this->id,")
+        ->and(php_parses($resource))->toBeTrue();
+
+    expect(File::get(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Controllers/API/WidgetController.php')))
+        ->toContain('return new WidgetResource(');
+
+    // resolve() rather than the resource itself: Inertia resolves an Arrayable
+    // by calling toArray(), which skips the filtering when() depends on and
+    // leaves a MissingValue object in the props.
+    expect(File::get(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Controllers/WidgetController.php')))
+        ->toContain('(new WidgetResource($widget))->resolve($request)');
 });
 
 test('generated controllers do not ship an unbounded read', function () {

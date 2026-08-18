@@ -3,14 +3,14 @@
 namespace App\IdentityAndAccess\Users\Domain\Factories;
 
 use App\IdentityAndAccess\Users\Domain\User;
-use Illuminate\Database\Eloquent\Factories\Factory;
+use App\Shared\Domain\AggregateFactory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**
- * @extends Factory<User>
+ * @extends AggregateFactory<User>
  */
-class UserFactory extends Factory
+class UserFactory extends AggregateFactory
 {
     protected $model = User::class;
 
@@ -18,18 +18,6 @@ class UserFactory extends Factory
      * The current password being used by the factory.
      */
     protected static ?string $password;
-
-    /**
-     * Build the model through the aggregate's own factory method, so that
-     * seeded and tested users get an identifier and register UserCreated
-     * exactly like the ones created by the application layer.
-     *
-     * @param  array<string, mixed>  $attributes
-     */
-    public function newModel(array $attributes = []): User
-    {
-        return User::new($attributes);
-    }
 
     /**
      * Define the model's default state.

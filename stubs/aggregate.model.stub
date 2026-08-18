@@ -2,6 +2,7 @@
 
 namespace App\{{ context }}\{{ plural }}\Domain;
 
+use App\Shared\Domain\BuildsFromAttributes;
 use App\Shared\Domain\HasDomainEvents;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
@@ -11,8 +12,11 @@ use Illuminate\Support\Arr;
  * Class {{ aggregate }}
  *
  * @property string $id
+ *
+ * @phpstan-consistent-constructor Eloquent fixes __construct(array $attributes = []),
+ * so new static() in new() is safe for anything that extends this.
  */
-class {{ aggregate }} extends Model
+class {{ aggregate }} extends Model implements BuildsFromAttributes
 {
     use HasDomainEvents;
 {{ modelTraits }}    use HasUuids;
@@ -45,9 +49,9 @@ class {{ aggregate }} extends Model
      *
      * @param  array<string, mixed>  $attributes
      */
-    public static function new(array $attributes = []): self
+    public static function new(array $attributes = []): static
     {
-        ${{ variable }} = new self(Arr::except($attributes, ['id']));
+        ${{ variable }} = new static(Arr::except($attributes, ['id']));
         ${{ variable }}->id = $attributes['id'] ?? ${{ variable }}->newUniqueId();
 {{ modelRegisterEvent }}
         return ${{ variable }};

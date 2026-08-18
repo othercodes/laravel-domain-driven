@@ -375,14 +375,19 @@ Six things surprise people arriving from stock Laravel.
 provider, from `{Context}/Shared/Infrastructure/Http/Routes/`. `BoundedContextServiceProvider::bootRoutes()` applies
 the middleware group but *not* a URI prefix, so an `api.php` declares `Route::prefix('api')` itself.
 
-**Aggregates are identified by uuid.** A domain event carries the identifier, so the identifier has to exist before
-`save()`. `new()` assigns it up front with `HasUuids::newUniqueId()`, the same helper Eloquent's `creating` hook would
-have called later.
+**Aggregates are identified by uuid, and built through `new()`.** A domain event carries the identifier, so the
+identifier has to exist before `save()`. `new()` assigns it up front with `HasUuids::newUniqueId()`, the same helper
+Eloquent's `creating` hook would have called later. Aggregates declare that with `BuildsFromAttributes`, which is
+what lets a factory be sure the method is there.
 
 **The aggregate root points at its own factory, and the factory lives in `Domain/Factories`.** Laravel only looks
 in `Database\Factories`, so the model declares `newFactory()`. Keeping the factory in `Domain` keeps that pointer
 inside one layer, which is why `domain does not depend on infrastructure` needs no exemption. Nothing new is let
 into `Domain` by it: the aggregate root is already an Eloquent model.
+
+Factories extend `AggregateFactory`, not Eloquent's `Factory`, so that `make()` and `create()` go through the
+aggregate's `new()`. Write one by hand against `Factory` and you get instances with no identifier and no recorded
+event, which only shows up later as rows nothing ever announced.
 
 **Domain events are ComplexHeart's, not Laravel's.** They implement `ComplexHeart\Domain\Contracts\Events\Event` and
 use the `IsDomainEvent` trait, which supplies `eventId`, `eventName`, `payload` and `occurredOn`. They carry

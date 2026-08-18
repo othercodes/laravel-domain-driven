@@ -108,17 +108,23 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // the migration may already have been applied.
         $modelExisted = $this->files->exists("{$path}/Domain/{$this->aggregate}.php");
 
-        // Unreadable is not the same as absent. Every question this command
-        // asks of an existing model answers false when it does not parse, so
-        // the table guard below would wave a mismatched migration through and
-        // the hints would advise adding what is already there. Refuse instead,
-        // the way the provider is refused when it does not parse.
+        // A file on disk is not the same as an aggregate that can be read.
+        // Every question below answers false for a file that does not parse
+        // and for one that holds no class at all, and false read off either is
+        // not a fact about the aggregate: the table guard would wave a
+        // mismatched migration through, and the hints would advise adding what
+        // is already there. So the question asked is whether the class was
+        // found, not whether the file parsed.
         $model = SourceFile::at("{$path}/Domain/{$this->aggregate}.php");
 
-        if ($modelExisted && ! $model->parsed()) {
-            $this->components->error("[{$this->aggregate}] does not parse, so nothing about it could be checked.");
+        if ($modelExisted && ! $model->declaresClass($this->aggregate)) {
+            $reason = $model->parsed()
+                ? "declares no class {$this->aggregate}"
+                : 'does not parse';
+
+            $this->components->error("[{$this->aggregate}] could not be read: {$this->relative("{$path}/Domain/{$this->aggregate}.php")} {$reason}.");
             $this->components->bulletList([
-                "Fix {$this->relative("{$path}/Domain/{$this->aggregate}.php")}, then run this again.",
+                'Fix it, then run this again.',
             ]);
 
             return self::FAILURE;

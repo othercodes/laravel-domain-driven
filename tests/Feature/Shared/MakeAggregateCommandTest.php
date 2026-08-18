@@ -475,21 +475,29 @@ test('it refuses a migration for a table the model does not declare', function (
  * does not parse, so unreadable would otherwise read as "declares no table",
  * which is exactly what the guard above takes as permission to proceed.
  */
-test('it refuses to reason about a model that does not parse', function () {
+test('it refuses to reason about a model it cannot read', function (string $contents, string $reason) {
     $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true];
 
     $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
 
-    File::put(app_path('ScaffoldFixture/Widgets/Domain/Widget.php'), "<?php\n\nclass Widget extends Model {\n");
+    File::put(app_path('ScaffoldFixture/Widgets/Domain/Widget.php'), $contents);
 
     $this->artisan('ldd:make:aggregate', $args + ['--table' => 'renamed'])
-        ->expectsOutputToContain('does not parse')
+        ->expectsOutputToContain($reason)
         ->assertFailed();
 
-    // The mismatched migration the unreadable model would have waved through.
+    // The mismatched migration an unread model would have waved through: a
+    // second create table for an aggregate that already has one.
     expect(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*.php')))
         ->toHaveCount(1);
-});
+})->with([
+    // Answers false to every question because it never parsed.
+    'unparseable' => ["<?php\n\nclass Widget extends Model {\n", 'does not parse'],
+    // Parses perfectly well, and holds no aggregate to answer for.
+    'empty' => ["<?php\n", 'declares no class Widget'],
+    // Parses, holds a class, but not the one being reasoned about.
+    'another class' => ["<?php\n\nclass Gadget {}\n", 'declares no class Widget'],
+]);
 
 test('it says a DatabaseSeeder it cannot read is unread, rather than advising a duplicate', function () {
     $seeder = app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php');

@@ -102,6 +102,24 @@ final class SourceFile
     }
 
     /**
+     * Whether the file declares a class by this short name.
+     *
+     * Asked before anything is concluded from what a file does not contain.
+     * A file that fails to parse and one that holds nothing both answer no to
+     * every other question here, and "no such method" read off either of them
+     * is not a fact about the class, it is the absence of the class.
+     */
+    public function declaresClass(string $name): bool
+    {
+        return $this->finder->findFirst(
+            $this->ast,
+            fn (Node $node): bool => $node instanceof Node\Stmt\Class_
+                && $node->name !== null
+                && $node->name->toString() === $name
+        ) !== null;
+    }
+
+    /**
      * Whether a class in the file declares this method.
      */
     public function declaresMethod(string $method): bool

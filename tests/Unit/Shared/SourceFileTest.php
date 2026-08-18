@@ -156,6 +156,18 @@ test('it says whether it could read the file at all', function () {
         ->and(SourceFile::at('/no/such/file.php')->parsed())->toBeTrue();
 });
 
+test('it tells a declared class from a file that merely parses', function () {
+    $declared = SourceFile::of('<?php class Widget {}');
+
+    expect($declared->declaresClass('Widget'))->toBeTrue()
+        // Parses, holds a class, just not the one being asked about.
+        ->and($declared->declaresClass('Gadget'))->toBeFalse()
+        // Parses and holds nothing, which is not the same as holding a Widget
+        // that happens to declare nothing.
+        ->and(SourceFile::of('<?php')->declaresClass('Widget'))->toBeFalse()
+        ->and(SourceFile::of('<?php class Widget {')->declaresClass('Widget'))->toBeFalse();
+});
+
 test('a file that does not parse answers no to everything', function () {
     $source = SourceFile::of('<?php class Broken {');
 

@@ -114,6 +114,38 @@ test('the factory is routed through the aggregate factory method', function () {
         ->toContain('protected static function newFactory(): WidgetFactory');
 });
 
+test('it says what an older aggregate needs before a factory type checks', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
+        ->assertSuccessful();
+
+    // The shape an aggregate generated before AggregateFactory existed has.
+    $model = app_path('ScaffoldFixture/Widgets/Domain/Widget.php');
+
+    File::put($model, str_replace(
+        [
+            "use App\Shared\Domain\BuildsFromAttributes;\n",
+            'class Widget extends Model implements BuildsFromAttributes',
+            'public static function new(array $attributes = []): static',
+        ],
+        [
+            '',
+            'class Widget extends Model',
+            'public static function new(array $attributes = []): self',
+        ],
+        File::get($model)
+    ));
+
+    expect(File::get($model))->not->toContain('BuildsFromAttributes');
+
+    // The generated factory binds its template to the contract, so without
+    // this the aggregate gets a factory that does not pass static analysis
+    // and nothing says which two lines are missing.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--factory' => true])
+        ->expectsOutputToContain('implements BuildsFromAttributes')
+        ->expectsOutputToContain('new() to return static')
+        ->assertSuccessful();
+});
+
 test('the aggregate declares the contract its factory builds through', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
         ->assertSuccessful();

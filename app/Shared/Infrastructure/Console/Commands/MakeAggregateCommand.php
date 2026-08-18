@@ -40,6 +40,11 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
     protected $description = 'Create an aggregate inside a bounded context';
 
+    /**
+     * The contract an aggregate declares so a factory can call new() on it.
+     */
+    private const BUILDS_FROM_ATTRIBUTES = 'App\\Shared\\Domain\\BuildsFromAttributes';
+
     private string $context;
 
     private string $aggregate;
@@ -177,6 +182,16 @@ final class MakeAggregateCommand extends ScaffoldCommand
         if ($this->wants('factory') && ! $model->declaresMethod('newFactory')) {
             $lines[] = 'use HasFactory; (imported from Illuminate\Database\Eloquent\Factories)';
             $lines[] = "protected static function newFactory(): {$this->aggregate}Factory { return {$this->aggregate}Factory::new(); }";
+        }
+
+        // An aggregate written before the factory base class existed declares
+        // new(): self and implements nothing, and the factory just generated
+        // for it does not type check against AggregateFactory's template. Both
+        // halves are named because they only work together: the interface
+        // returns static, so self would not satisfy it.
+        if ($this->wants('factory') && ! $model->implementsInterface(self::BUILDS_FROM_ATTRIBUTES)) {
+            $lines[] = 'implements BuildsFromAttributes (imported from App\Shared\Domain)';
+            $lines[] = 'and change new() to return static, building with new static(...)';
         }
 
         if ($lines === []) {

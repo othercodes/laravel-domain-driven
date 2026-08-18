@@ -102,7 +102,7 @@ test('the factory is routed through the aggregate factory method', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--factory' => true])
         ->assertSuccessful();
 
-    expect(File::get(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/WidgetFactory.php')))
+    expect(File::get(app_path('ScaffoldFixture/Widgets/Domain/Factories/WidgetFactory.php')))
         ->toContain('return Widget::new($attributes);');
 
     // Laravel would not find a factory outside Database\Factories, so the
@@ -739,7 +739,7 @@ test('all generates every optional piece', function () {
         ->assertSuccessful();
 
     expect(app_path('ScaffoldFixture/Widgets/Domain/Events/WidgetCreated.php'))->toBeFile()
-        ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/WidgetFactory.php'))->toBeFile()
+        ->and(app_path('ScaffoldFixture/Widgets/Domain/Factories/WidgetFactory.php'))->toBeFile()
         ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Seeders/WidgetSeeder.php'))->toBeFile()
         ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Requests/StoreWidgetRequest.php'))->toBeFile()
         ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Controllers/WidgetController.php'))->toBeFile()

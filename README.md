@@ -21,10 +21,10 @@ first. What this starter adds is that the structure is enforced, generated, and 
   listing rather than written out by hand, so a context you add tomorrow is covered the moment it exists, and every
   context already there starts forbidding it at the same time.
 
-- **The structure is generated, wiring included.** `ldd:make:bounded-context` and `ldd:make:aggregate` write the
-  files and register them: the repository binding, the migration path, the event handler, the console command. Every
-  one of those is a step that fails silently when forgotten, and a layout that costs ten manual steps per aggregate
-  is a layout that gets abandoned on the first deadline.
+- **The structure is generated, wiring included.** The `ldd:make:*` commands write the files and register them: the
+  provider in `bootstrap/providers.php`, the repository binding, the migration path, the event handler, the console
+  command. Every one of those is a step that fails silently when forgotten, and a layout that costs ten manual steps
+  per aggregate is a layout that gets abandoned on the first deadline.
 
 - **It ships applied, not as an example.** Registration, login, two-factor, session management and profiles are
   already rearranged into contexts, aggregates and layers. You read the pattern on features that work, rather than
@@ -158,7 +158,7 @@ resolvable at all. Everything else is opt in, because real aggregates rarely nee
 | Flag | Adds |
 |---|---|
 | `--migration` | A migration, and its path in the provider's `$migrations` |
-| `--factory` | A model factory, routed through the aggregate's `new()` |
+| `--factory` | A model factory in `Domain/Factories`, routed through the aggregate's `new()` |
 | `--seeder` | A seeder in the context, for you to list in `DatabaseSeeder` |
 | `--events` | A `Created` domain event, recorded by `new()` and published by you |
 | `--requests` | A form request |
@@ -297,6 +297,8 @@ app
             ├── Exceptions
             │   ├── UserException.php
             │   └── UserNotFound.php
+            ├── Factories
+            │   └── UserFactory.php
             ├── PasswordValidationRules.php
             └── User.php
 
@@ -348,18 +350,19 @@ app
                 ├── Migrations
                 │   ├── 0000_00_00_000001_create_users_table.php
                 │   └── 2024_12_04_123046_add_two_factor_columns_to_users_table.php
-                ├── Seeders
-                │   └── UserSeeder.php
-                └── UserFactory.php
+                └── Seeders
+                    └── UserSeeder.php
 ```
 
 Migrations belong to the aggregate that owns the table, not to `database/migrations`, which this starter does not
 have. Each one is registered through the `$migrations` array on the context's provider, and forgetting that entry is
 the quiet failure `ldd:make:aggregate --migration` exists to prevent.
 
-Seeders and factories follow the table. `database/` holds neither, and `database/seeders` is gone: `composer.json`
-points the `Database\Seeders` namespace at `app/Shared/Infrastructure/Persistence/Seeders` instead, so plain
-`db:seed` still resolves `DatabaseSeeder` with no `--class`.
+Seeders sit beside those migrations, one per aggregate, and the factory lives in `Domain/Factories` next to the
+aggregate it builds. The root `DatabaseSeeder` is the exception: it stays in the `Database\Seeders` namespace, which
+`composer.json` points at `app/Shared/Infrastructure/Persistence/Seeders`, because `db:seed` resolves that name and
+nothing else when given no `--class`. Every aggregate seeder you add has to be listed there by hand, in the order it
+should run.
 
 This structure ensures that each part of the application is clearly defined, maintainable, and focused on its specific
 domain, while following DDD and Hexagonal Architecture principles.
@@ -376,9 +379,10 @@ the middleware group but *not* a URI prefix, so an `api.php` declares `Route::pr
 `save()`. `new()` assigns it up front with `HasUuids::newUniqueId()`, the same helper Eloquent's `creating` hook would
 have called later.
 
-**The aggregate root points at its own factory.** A factory living in `Infrastructure/Persistence` is not where
-Laravel looks for one, so the model declares `newFactory()`. That is a deliberate Domain to Infrastructure coupling,
-and the architecture rules exempt it by detecting `newFactory` rather than listing classes by hand.
+**The aggregate root points at its own factory, and the factory lives in `Domain/Factories`.** Laravel only looks
+in `Database\Factories`, so the model declares `newFactory()`. Keeping the factory in `Domain` keeps that pointer
+inside one layer, which is why `domain does not depend on infrastructure` needs no exemption. Nothing new is let
+into `Domain` by it: the aggregate root is already an Eloquent model.
 
 **Domain events are ComplexHeart's, not Laravel's.** They implement `ComplexHeart\Domain\Contracts\Events\Event` and
 use the `IsDomainEvent` trait, which supplies `eventId`, `eventName`, `payload` and `occurredOn`. They carry

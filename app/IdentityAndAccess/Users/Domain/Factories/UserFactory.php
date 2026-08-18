@@ -1,6 +1,6 @@
 <?php
 
-namespace App\IdentityAndAccess\Users\Infrastructure\Persistence;
+namespace App\IdentityAndAccess\Users\Domain\Factories;
 
 use App\IdentityAndAccess\Users\Domain\User;
 use Illuminate\Database\Eloquent\Factories\Factory;

@@ -377,10 +377,12 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
 
         if ($this->wants('factory')) {
-            // The factory lives in Infrastructure and Laravel would not find
-            // it by convention, so the model points at it explicitly. This is
-            // the coupling the architecture test exempts for aggregate roots.
-            $uses[] = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\{$this->aggregate}Factory";
+            // Laravel looks for a factory in Database\Factories and this one
+            // is not there, so the model points at it explicitly. It lives in
+            // Domain beside the aggregate it builds, which keeps that pointer
+            // inside one layer: Domain already depends on Eloquent, since the
+            // aggregate root is a Model, so nothing new is being let in.
+            $uses[] = "App\\{$this->context}\\{$this->plural}\\Domain\\Factories\\{$this->aggregate}Factory";
             $uses[] = 'Illuminate\Database\Eloquent\Factories\HasFactory';
         }
 
@@ -426,7 +428,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
 
         if ($this->wants('factory')) {
-            $this->put("{$path}/Infrastructure/Persistence/{$this->aggregate}Factory.php", $this->stub('aggregate.factory', $this->replacements()));
+            $this->put("{$path}/Domain/Factories/{$this->aggregate}Factory.php", $this->stub('aggregate.factory', $this->replacements()));
         }
 
         if ($this->wants('seeder')) {

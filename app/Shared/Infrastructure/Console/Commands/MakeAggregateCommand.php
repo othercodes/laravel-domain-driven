@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
+use App\Shared\Domain\BuildsFromAttributes;
 use App\Shared\Infrastructure\Console\Support\SourceFile;
 use Illuminate\Support\Str;
 
@@ -43,7 +44,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
     /**
      * The contract an aggregate declares so a factory can call new() on it.
      */
-    private const BUILDS_FROM_ATTRIBUTES = 'App\\Shared\\Domain\\BuildsFromAttributes';
+    private const BUILDS_FROM_ATTRIBUTES = BuildsFromAttributes::class;
 
     private string $context;
 

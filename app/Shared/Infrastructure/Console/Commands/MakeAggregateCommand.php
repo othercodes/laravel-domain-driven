@@ -243,34 +243,22 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return;
         }
 
-        // What the aggregate's application layer already does decides this.
-        $application = "{$path}/Application";
+        // What the aggregate's application layer already does decides this,
+        // asked through the shared helper so this command and ldd:make:use-case
+        // cannot answer it differently.
+        $answer = $this->publishesDomainEvents("{$path}/Application");
 
-        $unreadable = [];
-
-        if ($this->files->isDirectory($application)) {
-            foreach ($this->files->allFiles($application) as $file) {
-                $source = SourceFile::at($file->getPathname());
-
-                if (! $source->parsed()) {
-                    $unreadable[] = $this->relative($file->getPathname());
-
-                    continue;
-                }
-
-                if ($source->calls('publishDomainEvents')) {
-                    return;
-                }
-            }
+        if ($answer['publishes']) {
+            return;
         }
 
         // One of them may well be the use case that publishes, so the advice
         // below would be telling somebody to write what they already have.
-        if ($unreadable !== []) {
+        if ($answer['unreadable'] !== []) {
             $this->newLine();
-            $this->line('  <fg=yellow>Could not tell whether anything publishes '."{$this->aggregate}Created".': these do not parse:</>');
+            $this->line("  <fg=yellow>Could not tell whether anything publishes {$this->aggregate}Created: these do not parse:</>");
 
-            foreach ($unreadable as $file) {
+            foreach ($answer['unreadable'] as $file) {
                 $this->line("  <fg=gray>{$file}</>");
             }
 

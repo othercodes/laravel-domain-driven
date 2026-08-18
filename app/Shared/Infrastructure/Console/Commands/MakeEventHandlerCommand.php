@@ -128,7 +128,7 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         $handler = SourceFile::at($file);
 
         // Asked before concluding anything from what the file does not hold. A
-        // file that does not parse, and one holding no {$name} at all, both say
+        // file that does not parse, and one holding no such class at all, both say
         // "implements nothing", and telling somebody to add an interface to a
         // class that is not there names the wrong problem.
         if (! $handler->declaresClass($name)) {

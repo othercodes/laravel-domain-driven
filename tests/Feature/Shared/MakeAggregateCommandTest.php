@@ -407,6 +407,20 @@ test('it stays quiet when the application layer already publishes', function () 
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
         ->doesntExpectOutputToContain('Nothing publishes WidgetCreated.')
         ->assertSuccessful();
+
+    // One it cannot read may be the use case that publishes, and both commands
+    // ask this through one helper so they cannot answer it differently.
+    File::put("{$application}/CreateWidget.php", "<?php\n\nclass CreateWidget {\n");
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
+        ->expectsOutputToContain('Could not tell whether anything publishes')
+        ->doesntExpectOutputToContain('Nothing publishes WidgetCreated.')
+        ->assertSuccessful();
+
+    $this->artisan('ldd:make:use-case', ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'UpdateWidget'])
+        ->expectsOutputToContain('Could not tell whether anything publishes')
+        ->doesntExpectOutputToContain('records domain events')
+        ->assertSuccessful();
 });
 
 test('it does not re-advise a route the file already declares', function () {

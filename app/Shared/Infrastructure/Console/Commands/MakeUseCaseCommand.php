@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
-use App\Shared\Infrastructure\Console\Support\SourceFile;
 use Illuminate\Support\Str;
 
 /**
@@ -79,18 +78,28 @@ final class MakeUseCaseCommand extends ScaffoldCommand
 
         // And only until something publishes them. This is the same question
         // ldd:make:aggregate asks before printing its own version, and the two
-        // have no business disagreeing about the answer.
-        $application = "{$target['path']}/Application";
+        // have no business disagreeing about the answer, so both ask it through
+        // the one helper rather than each keeping a copy that can drift.
+        $answer = $this->publishesDomainEvents("{$target['path']}/Application");
 
-        if ($this->files->isDirectory($application)) {
-            foreach ($this->files->allFiles($application) as $file) {
-                if (SourceFile::at($file->getPathname())->calls('publishDomainEvents')) {
-                    return;
-                }
-            }
+        if ($answer['publishes']) {
+            return;
         }
 
         $this->newLine();
+
+        // Any of them may be the use case that publishes, so advising one
+        // would be asking for what is already written.
+        if ($answer['unreadable'] !== []) {
+            $this->line("  <fg=yellow>Could not tell whether anything publishes {$target['aggregate']}'s events: these do not parse:</>");
+
+            foreach ($answer['unreadable'] as $file) {
+                $this->line("  <fg=gray>{$file}</>");
+            }
+
+            return;
+        }
+
         $this->line("  <fg=yellow>{$target['aggregate']} records domain events. A use case that creates or changes one</>");
         $this->line('  <fg=yellow>should publish them, which is what --publishes scaffolds.</>');
     }

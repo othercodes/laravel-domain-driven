@@ -7,6 +7,7 @@ use App\IdentityAndAccess\Users\Domain\Events\UserDeleted;
 use App\IdentityAndAccess\Users\Domain\Events\UserEmailUpdated;
 use App\IdentityAndAccess\Users\Domain\Events\UserNameUpdated;
 use App\IdentityAndAccess\Users\Domain\Factories\UserFactory;
+use App\Shared\Domain\BuildsFromAttributes;
 use App\Shared\Domain\HasDomainEvents;
 use App\Shared\Domain\HasProfilePhoto;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
@@ -33,8 +34,11 @@ use Laravel\Sanctum\HasApiTokens;
  * @method static UserFactory factory()
  *
  * @author Unay Santisteban <usantisteban@othercode.io>
+ *
+ * @phpstan-consistent-constructor Eloquent fixes __construct(array $attributes = []),
+ * so new static() in new() is safe for anything that extends this.
  */
-class User extends Authenticatable implements MustVerifyEmail
+class User extends Authenticatable implements BuildsFromAttributes, MustVerifyEmail
 {
     use HasApiTokens;
     use HasDomainEvents;
@@ -57,9 +61,9 @@ class User extends Authenticatable implements MustVerifyEmail
      *
      * @param  array<string, mixed>  $attributes
      */
-    public static function new(array $attributes = []): self
+    public static function new(array $attributes = []): static
     {
-        $user = new self(Arr::except($attributes, ['id']));
+        $user = new static(Arr::except($attributes, ['id']));
         $user->id = $attributes['id'] ?? $user->newUniqueId();
         $user->registerDomainEvent(UserCreated::new($user->id));
 

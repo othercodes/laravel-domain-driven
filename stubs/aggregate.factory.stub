@@ -5,26 +5,14 @@ declare(strict_types=1);
 namespace App\{{ context }}\{{ plural }}\Domain\Factories;
 
 use App\{{ context }}\{{ plural }}\Domain\{{ aggregate }};
-use Illuminate\Database\Eloquent\Factories\Factory;
+use App\Shared\Domain\AggregateFactory;
 
 /**
- * @extends Factory<{{ aggregate }}>
+ * @extends AggregateFactory<{{ aggregate }}>
  */
-class {{ aggregate }}Factory extends Factory
+class {{ aggregate }}Factory extends AggregateFactory
 {
     protected $model = {{ aggregate }}::class;
-
-    /**
-     * Build through the aggregate's own factory method, so seeded and tested
-     * instances get an identifier and record the same events as the ones the
-     * application layer creates.
-     *
-     * @param  array<string, mixed>  $attributes
-     */
-    public function newModel(array $attributes = []): {{ aggregate }}
-    {
-        return {{ aggregate }}::new($attributes);
-    }
 
     /**
      * @return array<string, mixed>

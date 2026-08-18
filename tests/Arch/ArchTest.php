@@ -14,10 +14,6 @@
 
 $appPath = dirname(__DIR__, 2).'/app';
 
-$fqcn = fn (string $file): string => 'App\\'.str_replace(
-    ['/', '.php'], ['\\', ''], substr($file, strlen($appPath) + 1)
-);
-
 /** Every directory under app/, e.g. IdentityAndAccess and Shared. */
 $contexts = array_map('basename', glob($appPath.'/*', GLOB_ONLYDIR) ?: []);
 sort($contexts);
@@ -47,25 +43,16 @@ arch()->preset()->security();
 | Application or Infrastructure layers. Only Shared Domain is
 | allowed as a cross-cutting dependency.
 |
-| Known exception: Eloquent aggregate roots declare newFactory(), which
-| returns a *Factory living in Infrastructure. This is a framework coupling
-| that cannot be avoided without breaking Eloquent factories, so those
-| classes are discovered and exempted instead of being listed by hand.
+| This rule has no exceptions. It used to exempt aggregate roots, because
+| newFactory() pointed at a *Factory under Infrastructure; the factory now
+| lives in Domain\Factories beside the aggregate it builds, so the pointer
+| stays inside one layer and the exemption is gone. Do not add it back: an
+| exemption list is how a rule stops being one.
 */
-
-$eloquentAggregateRoots = [];
-foreach ($boundedContexts as $context) {
-    foreach (glob($appPath.'/'.$context.'/*/Domain/*.php') ?: [] as $file) {
-        if (str_contains((string) file_get_contents($file), 'newFactory')) {
-            $eloquentAggregateRoots[] = $fqcn($file);
-        }
-    }
-}
 
 arch('domain does not depend on infrastructure')
     ->expect('App\*\*\Domain')
-    ->not->toUse('App\*\*\Infrastructure')
-    ->ignoring($eloquentAggregateRoots);
+    ->not->toUse('App\*\*\Infrastructure');
 
 arch('domain does not depend on application')
     ->expect('App\*\*\Domain')

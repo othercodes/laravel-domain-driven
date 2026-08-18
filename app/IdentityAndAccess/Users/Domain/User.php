@@ -6,7 +6,7 @@ use App\IdentityAndAccess\Users\Domain\Events\UserCreated;
 use App\IdentityAndAccess\Users\Domain\Events\UserDeleted;
 use App\IdentityAndAccess\Users\Domain\Events\UserEmailUpdated;
 use App\IdentityAndAccess\Users\Domain\Events\UserNameUpdated;
-use App\IdentityAndAccess\Users\Infrastructure\Persistence\UserFactory;
+use App\IdentityAndAccess\Users\Domain\Factories\UserFactory;
 use App\Shared\Domain\HasDomainEvents;
 use App\Shared\Domain\HasProfilePhoto;
 use Illuminate\Contracts\Auth\MustVerifyEmail;

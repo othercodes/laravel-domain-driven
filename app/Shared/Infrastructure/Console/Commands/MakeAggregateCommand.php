@@ -26,11 +26,16 @@ final class MakeAggregateCommand extends ScaffoldCommand
         {name : The aggregate root name, singular, e.g. Invoice}
         {--migration : Add a migration and register its path}
         {--factory : Add a model factory}
+        {--seeder : Add a seeder and say how to register it}
         {--events : Add a Created domain event and record it}
         {--requests : Add a form request}
         {--web : Add an Inertia controller}
         {--api : Add an API controller}
         {--all : Everything above}
+        {--mail=* : A mailable in Application/Mail, e.g. --mail=InvoicePaid}
+        {--job=* : A queued job in Application/Jobs}
+        {--notification=* : A notification in Application/Notifications}
+        {--command=* : An Artisan command in Infrastructure/Console/Commands, wired into $commands}
         {--table= : Table name, defaults to the pluralised aggregate}';
 
     protected $description = 'Create an aggregate inside a bounded context';
@@ -126,18 +131,26 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
 
         $this->writeOptional($path);
-        $wired = $this->wireProvider();
+
+        // Threaded through rather than kept on the command: Artisan reuses the
+        // instance between calls in the same process, so a property here would
+        // carry one run's console commands into the next.
+        $delegated = $this->writeDelegated();
+        $wired = $this->wireProvider($delegated['commands']);
 
         $this->newLine();
         $this->components->info("Aggregate [{$this->aggregate}] ".($modelExisted ? 'updated' : 'created')." in [{$this->context}].");
 
         $this->printModelHints($path, $modelExisted);
         $this->printEventHints($path);
+        $this->printSeederHints();
         $this->printRouteHints();
 
         // The files exist but the context does not know about them, so a
-        // script chaining on this command must not treat it as done.
-        return $wired ? self::SUCCESS : self::FAILURE;
+        // script chaining on this command must not treat it as done. A name
+        // this command refused counts the same: something was asked for and
+        // is not there.
+        return $wired && $delegated['complete'] ? self::SUCCESS : self::FAILURE;
     }
 
     /**
@@ -207,6 +220,40 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $this->line("  <fg=gray>\${$this->variable} = \$this->repository->save({$this->aggregate}::new(\$input));</>");
         $this->line("  <fg=gray>\${$this->variable}->publishDomainEvents(\$this->eventBus);  // ComplexHeart\\Domain\\Contracts\\Events\\EventBus</>");
         $this->line('  <fg=gray>// both inside DB::transaction, so a failing listener cannot leave the aggregate persisted</>');
+    }
+
+    /**
+     * A seeder nothing lists never runs, and db:seed reports success either
+     * way. This is printed rather than wired because seeders run in the order
+     * DatabaseSeeder lists them, and appending to the end is a guess at where
+     * this one belongs: reference data another seeder depends on has to go
+     * first, and only the developer knows whether this is that.
+     */
+    private function printSeederHints(): void
+    {
+        if (! $this->wants('seeder')) {
+            return;
+        }
+
+        $file = app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php');
+        $class = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\Seeders\\{$this->aggregate}Seeder";
+
+        // What DatabaseSeeder already lists decides this, not the flag, so
+        // re-running to add another option does not advise a second entry.
+        if (SourceFile::at($file)->references($class)) {
+            return;
+        }
+
+        $this->newLine();
+
+        if (! $this->files->exists($file)) {
+            $this->line("  <fg=yellow>{$this->aggregate}Seeder will not run: no DatabaseSeeder at {$this->relative($file)}.</>");
+
+            return;
+        }
+
+        $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
+        $this->line("  <fg=gray>{$this->aggregate}Seeder::class,  // in \$seeders, or \$fixtures if it is sample data</>");
     }
 
     /**
@@ -330,10 +377,12 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
 
         if ($this->wants('factory')) {
-            // The factory lives in Infrastructure and Laravel would not find
-            // it by convention, so the model points at it explicitly. This is
-            // the coupling the architecture test exempts for aggregate roots.
-            $uses[] = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\{$this->aggregate}Factory";
+            // Laravel looks for a factory in Database\Factories and this one
+            // is not there, so the model points at it explicitly. It lives in
+            // Domain beside the aggregate it builds, which keeps that pointer
+            // inside one layer: Domain already depends on Eloquent, since the
+            // aggregate root is a Model, so nothing new is being let in.
+            $uses[] = "App\\{$this->context}\\{$this->plural}\\Domain\\Factories\\{$this->aggregate}Factory";
             $uses[] = 'Illuminate\Database\Eloquent\Factories\HasFactory';
         }
 
@@ -379,7 +428,25 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
 
         if ($this->wants('factory')) {
-            $this->put("{$path}/Infrastructure/Persistence/{$this->aggregate}Factory.php", $this->stub('aggregate.factory', $this->replacements()));
+            $this->put("{$path}/Domain/Factories/{$this->aggregate}Factory.php", $this->stub('aggregate.factory', $this->replacements()));
+        }
+
+        if ($this->wants('seeder')) {
+            // A seeder that calls a factory nobody generated is a fatal error
+            // the first time somebody runs db:seed, so the body follows what
+            // was actually asked for rather than assuming the happy path.
+            $seeder = $this->stub('aggregate.seeder', $this->replacements([
+                // App sorts before Illuminate, so this goes in ahead of the
+                // Seeder import and Pint's ordered_imports has nothing to fix.
+                '{{ seederUses }}' => $this->wants('factory')
+                    ? "use App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate};\n"
+                    : '',
+                '{{ seederBody }}' => $this->wants('factory')
+                    ? "        {$this->aggregate}::factory()->count(10)->create();\n"
+                    : "        // Nothing here yet. Generate a factory with --factory, then:\n        // {$this->aggregate}::factory()->count(10)->create();\n",
+            ]));
+
+            $this->put("{$path}/Infrastructure/Persistence/Seeders/{$this->aggregate}Seeder.php", $seeder);
         }
 
         if ($this->wants('migration')) {
@@ -417,11 +484,78 @@ final class MakeAggregateCommand extends ScaffoldCommand
     }
 
     /**
+     * Generates the pieces Laravel already has a generator for, in the place
+     * this architecture puts them rather than the one the generator defaults
+     * to. Nothing here needs a stub of our own: what makes a mailable belong
+     * to an aggregate is where it lives, not what is in it.
+     *
+     * These take names instead of being on or off, so --all does not cover
+     * them. There is no obvious name for an aggregate's mailable, and one
+     * aggregate often wants several.
+     *
+     * Returns the console commands to declare in the provider, and whether
+     * everything asked for is actually there. A name this command refused, or
+     * a generator that declined, has to reach the exit code: printing an error
+     * and answering success is how a chained script carries on regardless.
+     *
+     * @return array{commands: list<string>, complete: bool}
+     */
+    private function writeDelegated(): array
+    {
+        $base = "App\\{$this->context}\\{$this->plural}";
+        $consoleCommands = [];
+        $complete = true;
+
+        $delegations = [
+            ['mail', 'make:mail', "{$base}\\Application\\Mail"],
+            ['job', 'make:job', "{$base}\\Application\\Jobs"],
+            ['notification', 'make:notification', "{$base}\\Application\\Notifications"],
+            ['command', 'make:command', "{$base}\\Infrastructure\\Console\\Commands"],
+        ];
+
+        foreach ($delegations as [$option, $generator, $namespace]) {
+            /** @var list<string> $names */
+            $names = (array) $this->option($option);
+
+            foreach ($names as $name) {
+                // Same guard as every other name this command takes: the
+                // generators interpolate it straight into a class declaration.
+                $class = $this->identifier($name, $option);
+
+                if ($class === null) {
+                    $complete = false;
+
+                    continue;
+                }
+
+                $written = $this->generate($generator, "{$namespace}\\{$class}");
+
+                if ($written === null) {
+                    $complete = false;
+
+                    continue;
+                }
+
+                // A console command Laravel does not autodiscover, since it
+                // only ever scans app/Console/Commands, so the provider has to
+                // declare it or the command simply never exists.
+                if ($option === 'command') {
+                    $consoleCommands[] = $written;
+                }
+            }
+        }
+
+        return ['commands' => $consoleCommands, 'complete' => $complete];
+    }
+
+    /**
      * Binds the repository and, when a migration was generated, registers its
      * path. Without this the aggregate would resolve nothing and its tables
      * would never be created, silently in both cases.
+     *
+     * @param  list<string>  $consoleCommands
      */
-    private function wireProvider(): bool
+    private function wireProvider(array $consoleCommands): bool
     {
         $file = app_path("{$this->context}/{$this->context}ServiceProvider.php");
 
@@ -460,12 +594,36 @@ final class MakeAggregateCommand extends ScaffoldCommand
             }
         }
 
+        // array_unique because the same flag can be passed twice in one run,
+        // and the check below only sees the file as it was before this one.
+        foreach (array_unique($consoleCommands) as $class) {
+            // Asked of the declaration rather than of the flag, so a re-run
+            // that regenerates nothing does not declare the command twice and
+            // register it with Artisan twice over.
+            if ($contents === null || $declared->references($class)) {
+                continue;
+            }
+
+            // Written out in full rather than imported under its short name.
+            // A console command's name is free text, so two aggregates in one
+            // context may each have a SyncThings, and one may be called
+            // WidgetRepository like something the provider already imports.
+            // Two use statements resolving to the same short name is a fatal
+            // error that takes the whole application down, not just this
+            // context. $migrations avoids it the same way, by holding strings.
+            $contents = $this->appendToArray($contents, 'commands', "        \\{$class}::class,");
+        }
+
         // Reporting a green "wired" after a rewrite that matched nothing is
         // how an unbound contract and an unregistered migration path reach
         // production unnoticed. Say so instead.
         if ($contents === null) {
             $this->components->twoColumnDetail($this->relative($file), '<fg=red>could not be wired</>');
-            $this->components->warn("Add the binding and, if generated, the migration path to {$this->context}ServiceProvider by hand.");
+
+            // The file is only written once, at the end, so a null here means
+            // none of it landed. Naming all three matters: a console command
+            // left out of $commands is one Artisan never registers.
+            $this->components->warn("Nothing was written to {$this->context}ServiceProvider. Add the repository binding, the migration path if one was generated, and any console command, by hand.");
 
             return false;
         }

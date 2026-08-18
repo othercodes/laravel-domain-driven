@@ -4,38 +4,39 @@
 <a href="https://www.php.net/releases/8.4/en.php"><img src="https://img.shields.io/badge/PHP-8.4-777BB4.svg?style=flat&logo=php" alt="PHP 8.4"/></a>
 <a href="https://github.com/othercodes/laravel-domain-driven/actions/workflows/test.yml"><img src="https://github.com/othercodes/laravel-domain-driven/actions/workflows/test.yml/badge.svg" alt="Test"/></a>
 
-Welcome to Laravel Domain Driven! This is a Laravel starter designed to help you build applications using Hexagonal
-Architecture and Domain-Driven Design (DDD).
+A Laravel 13 starter that arranges an application into bounded contexts, aggregates and layers, following
+Domain-Driven Design and Hexagonal Architecture.
 
-With this starter, your project is organized into clear layers, keeping your core business logic separate from other
-parts of your application. This makes your code easier to maintain and adapt over time. By using DDD, you can model your
-business problems more clearly and build software that is easy to change as your needs evolve.
-
-Whether you're starting a new project or improving an existing one, Laravel Domain Driven gives you a strong foundation
-for building flexible, high-quality applications.
+It comes with authentication, two-factor, session management and profiles built on Fortify with Inertia and Vue 3,
+a Pest suite that enforces the layering, and `ldd:make:*` commands that scaffold new contexts and aggregates
+together with the wiring they need. Sail is the supported environment, with PHP 8.4 and Node 24 pinned.
 
 ## 🤔 Why use Laravel Domain Driven?
 
-**Laravel Domain Driven** brings together the power of **Laravel**, **Domain-Driven Design (DDD)**, and **Hexagonal
-Architecture**, offering key benefits:
+Plenty of repositories publish a DDD directory tree. A tree is the easy part, and it is also the part that erodes
+first. What this starter adds is that the structure is enforced, generated, and already applied to something real.
 
-- **Clear and Organized Code**: DDD and Hexagonal Architecture help keep your business logic separate from other parts
-  of the app, making your code easier to understand and manage.
+- **The architecture is checked, not just described.** A Pest suite fails the build when a Domain layer reaches into
+  Infrastructure, or when one bounded context imports another's internals. The rules are derived from the `app/`
+  listing rather than written out by hand, so a context you add tomorrow is covered the moment it exists, and every
+  context already there starts forbidding it at the same time.
 
-- **Easy to Scale and Update**: This structure allows your application to grow and change over time without needing
-  major rewrites.
+- **The structure is generated, wiring included.** The `ldd:make:*` commands write the files and register them: the
+  provider in `bootstrap/providers.php`, the repository binding, the migration path, the event handler, the console
+  command. Every one of those is a step that fails silently when forgotten, and a layout that costs ten manual steps
+  per aggregate is a layout that gets abandoned on the first deadline.
 
-- **Well-Structured Application**: By combining Laravel’s features with DDD, your project becomes more organized, making
-  it easier to work with.
+- **It ships applied, not as an example.** Registration, login, two-factor, session management and profiles are
+  already rearranged into contexts, aggregates and layers. You read the pattern on features that work, rather than
+  on a `Foo` aggregate you delete on day one.
 
-- **Easier to Test and Maintain**: Hexagonal Architecture focuses on clean design, making it simpler to test and
-  maintain your code.
+- **Bounded contexts are declarative.** A context provider lists what it owns in `$bindings`, `$events`,
+  `$commands`, `$migrations` and `$routes`, and ComplexHeart boots it. Nothing is registered by hand in a boot
+  method, so a context stays something you can read in one screen.
 
-- **The Power of Laravel**: Laravel provides a modern and elegant framework with built-in tools for routing,
-  authentication, database management, and more, helping you develop quickly and efficiently while maintaining
-  high-quality code.
-
-Using **Laravel Domain Driven** helps you build clean, flexible, and long-lasting applications.
+- **Laravel stays Laravel.** The aggregate root is an Eloquent model, and Fortify, Inertia, queues, factories and
+  the rest work exactly as their own documentation says. This is a Laravel application rearranged, not a framework
+  built on top of one.
 
 ## ✨ Features
 
@@ -157,12 +158,22 @@ resolvable at all. Everything else is opt in, because real aggregates rarely nee
 | Flag | Adds |
 |---|---|
 | `--migration` | A migration, and its path in the provider's `$migrations` |
-| `--factory` | A model factory, routed through the aggregate's `new()` |
+| `--factory` | A model factory in `Domain/Factories`, routed through the aggregate's `new()` |
+| `--seeder` | A seeder in the context, for you to list in `DatabaseSeeder` |
 | `--events` | A `Created` domain event, recorded by `new()` and published by you |
 | `--requests` | A form request |
 | `--web` | An Inertia controller, rendering through `InertiaController`, and a resource |
 | `--api` | An API controller, and a resource |
 | `--all` | All of the above |
+
+Four more take a name instead of being on or off, and can be repeated. `--all` does not cover them:
+
+| Flag | Adds |
+|---|---|
+| `--mail=InvoicePaid` | A mailable in `Application/Mail` |
+| `--job=RebuildIndex` | A queued job in `Application/Jobs` |
+| `--notification=InvoiceDue` | A notification in `Application/Notifications` |
+| `--command=SyncInvoices` | An Artisan command in `Infrastructure/Console/Commands`, and its entry in `$commands` |
 
 Either controller flag also writes an `{Aggregate}Resource`, because both of them publish and neither should hand
 out the model itself. It starts closed, with `id` and nothing else, so an attribute reaches the outside because you
@@ -286,6 +297,8 @@ app
             ├── Exceptions
             │   ├── UserException.php
             │   └── UserNotFound.php
+            ├── Factories
+            │   └── UserFactory.php
             ├── PasswordValidationRules.php
             └── User.php
 
@@ -337,19 +350,26 @@ app
                 ├── Migrations
                 │   ├── 0000_00_00_000001_create_users_table.php
                 │   └── 2024_12_04_123046_add_two_factor_columns_to_users_table.php
-                └── UserFactory.php
+                └── Seeders
+                    └── UserSeeder.php
 ```
 
 Migrations belong to the aggregate that owns the table, not to `database/migrations`, which this starter does not
 have. Each one is registered through the `$migrations` array on the context's provider, and forgetting that entry is
 the quiet failure `ldd:make:aggregate --migration` exists to prevent.
 
+Seeders sit beside those migrations, one per aggregate, and the factory lives in `Domain/Factories` next to the
+aggregate it builds. The root `DatabaseSeeder` is the exception: it stays in the `Database\Seeders` namespace, which
+`composer.json` points at `app/Shared/Infrastructure/Persistence/Seeders`, because `db:seed` resolves that name and
+nothing else when given no `--class`. Every aggregate seeder you add has to be listed there by hand, in the order it
+should run.
+
 This structure ensures that each part of the application is clearly defined, maintainable, and focused on its specific
 domain, while following DDD and Hexagonal Architecture principles.
 
 ## 📐 Conventions
 
-Four things surprise people arriving from stock Laravel.
+Six things surprise people arriving from stock Laravel.
 
 **`routes/web.php` is empty on purpose.** Each context publishes its own routes through the `$routes` array on its
 provider, from `{Context}/Shared/Infrastructure/Http/Routes/`. `BoundedContextServiceProvider::bootRoutes()` applies
@@ -359,14 +379,31 @@ the middleware group but *not* a URI prefix, so an `api.php` declares `Route::pr
 `save()`. `new()` assigns it up front with `HasUuids::newUniqueId()`, the same helper Eloquent's `creating` hook would
 have called later.
 
-**The aggregate root points at its own factory.** A factory living in `Infrastructure/Persistence` is not where
-Laravel looks for one, so the model declares `newFactory()`. That is a deliberate Domain to Infrastructure coupling,
-and the architecture rules exempt it by detecting `newFactory` rather than listing classes by hand.
+**The aggregate root points at its own factory, and the factory lives in `Domain/Factories`.** Laravel only looks
+in `Database\Factories`, so the model declares `newFactory()`. Keeping the factory in `Domain` keeps that pointer
+inside one layer, which is why `domain does not depend on infrastructure` needs no exemption. Nothing new is let
+into `Domain` by it: the aggregate root is already an Eloquent model.
 
 **Domain events are ComplexHeart's, not Laravel's.** They implement `ComplexHeart\Domain\Contracts\Events\Event` and
 use the `IsDomainEvent` trait, which supplies `eventId`, `eventName`, `payload` and `occurredOn`. They carry
 identifiers and scalars, never Eloquent models. That is what makes `payload()` meaningful and `SerializesModels`
 unnecessary. An aggregate records them; a use case publishes them through the `EventBus`.
+
+**Laravel's own generators need the full class name.** The flags above cover the usual ones. For anything else,
+`make:policy`, `make:observer`, `make:rule` and the rest, name the class in full and it lands where you say:
+
+```bash
+./vendor/bin/sail artisan make:policy 'App\Billing\Invoices\Infrastructure\Http\Policies\InvoicePolicy'
+```
+
+Drop the `App\` and you get `app/Policies/Billing/...` instead, because each generator prepends its own namespace to
+a name that does not already start at the root. `make:seeder` and `make:factory` ignore the name either way and
+always write into `database/`.
+
+**`DatabaseSeeder` is the one file that reaches into every context.** Seeders live with their aggregate under
+`Infrastructure/Persistence/Seeders`, and only run once `DatabaseSeeder` lists them, in the order it lists them.
+`--seeder` writes the class but leaves the entry to you, since a seeder whose reference data another one depends on
+has to go first. Sample data goes in `$fixtures` instead, which never runs in production.
 
 ## ⚠️ Disclaimer
 

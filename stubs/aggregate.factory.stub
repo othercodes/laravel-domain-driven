@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\{{ context }}\{{ plural }}\Infrastructure\Persistence;
+namespace App\{{ context }}\{{ plural }}\Domain\Factories;
 
 use App\{{ context }}\{{ plural }}\Domain\{{ aggregate }};
 use Illuminate\Database\Eloquent\Factories\Factory;

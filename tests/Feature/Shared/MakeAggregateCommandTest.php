@@ -470,6 +470,43 @@ test('it refuses a migration for a table the model does not declare', function (
         ->toHaveCount(1);
 });
 
+/*
+ * Every question this command asks of an existing model answers false when it
+ * does not parse, so unreadable would otherwise read as "declares no table",
+ * which is exactly what the guard above takes as permission to proceed.
+ */
+test('it refuses to reason about a model that does not parse', function () {
+    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true];
+
+    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
+
+    File::put(app_path('ScaffoldFixture/Widgets/Domain/Widget.php'), "<?php\n\nclass Widget extends Model {\n");
+
+    $this->artisan('ldd:make:aggregate', $args + ['--table' => 'renamed'])
+        ->expectsOutputToContain('does not parse')
+        ->assertFailed();
+
+    // The mismatched migration the unreadable model would have waved through.
+    expect(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*.php')))
+        ->toHaveCount(1);
+});
+
+test('it says a DatabaseSeeder it cannot read is unread, rather than advising a duplicate', function () {
+    $seeder = app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php');
+    $backup = File::get($seeder);
+
+    File::put($seeder, "<?php\n\nnamespace Database\Seeders;\n\nclass DatabaseSeeder {\n");
+
+    try {
+        $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true])
+            ->expectsOutputToContain('does not parse')
+            ->doesntExpectOutputToContain('WidgetSeeder::class,')
+            ->assertSuccessful();
+    } finally {
+        File::put($seeder, $backup);
+    }
+});
+
 test('re-running adds the missing piece without touching the model', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
 

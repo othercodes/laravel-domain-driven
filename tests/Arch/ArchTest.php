@@ -73,6 +73,21 @@ arch('domain exceptions extend exception')
     ->toBeClasses()
     ->toExtend('Exception');
 
+/*
+ * AggregateFactory routes make() and create() through the aggregate's new(),
+ * which is what assigns the identifier and records the creation event. A
+ * factory written against Eloquent's Factory instead looks ordinary and
+ * produces rows nothing ever announced, so extending it is not left to
+ * whoever writes the next one.
+ *
+ * A factory is optional, and Pest throws when a pattern matches no directory.
+ */
+if ((glob($appPath.'/*/*/Domain/Factories', GLOB_ONLYDIR) ?: []) !== []) {
+    arch('aggregate factories build through the aggregate')
+        ->expect('App\*\*\Domain\Factories')
+        ->toExtend('App\Shared\Domain\AggregateFactory');
+}
+
 arch('shared domain traits are traits')
     ->expect('App\Shared\Domain')
     ->traits()

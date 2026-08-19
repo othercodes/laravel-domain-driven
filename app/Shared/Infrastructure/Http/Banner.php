@@ -19,11 +19,6 @@ namespace App\Shared\Infrastructure\Http;
 final class Banner
 {
     /**
-     * Flashed through Inertia rather than shared as a prop, so it reaches the
-     * page once and is gone: shared props are written into the history entry
-     * and merged back on a partial reload, and a banner that outlives its
-     * redirect reappears on the Back button.
-     *
      * @return array{message: string, style: string}
      */
     public static function of(string $style, string $message): array

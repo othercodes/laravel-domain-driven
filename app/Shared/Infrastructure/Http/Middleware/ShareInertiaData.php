@@ -20,9 +20,7 @@ class ShareInertiaData
     public function handle($request, $next)
     {
         Inertia::share([
-            'context' => function () use ($request) {
-                $user = $request->user();
-
+            'context' => function () {
                 return [
                     'canManageTwoFactorAuthentication' => Features::canManageTwoFactorAuthentication(),
                     'canUpdatePassword' => Features::enabled(Features::updatePasswords()),

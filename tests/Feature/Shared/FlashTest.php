@@ -74,10 +74,12 @@ test('the component reads the keys the macros write, and styles every one', func
 
     // Named here because no test can render the component: the two sides have
     // to agree on these two keys and there is nothing else to notice if they
-    // stop agreeing.
+    // stop agreeing. `page.flash`, not `page.props`: the payload no longer
+    // travels as a prop, and reading it from there compiles, renders nothing
+    // and says nothing about why.
     expect($component)
-        ->toContain('flash?.banner?.style')
-        ->toContain('flash?.banner?.message');
+        ->toContain('page.flash?.banner?.style')
+        ->toContain('page.flash?.banner?.message');
 
     // A style the palette does not carry renders unstyled, which is how info
     // and warning shipped: reachable from PHP, invisible on the page, and the
@@ -96,6 +98,7 @@ test('the alert dialog is handed text, never markup, message and title alike', f
     // earlier version of this test guarded only the message, and the title
     // went out unescaped behind it.
     expect($component)
+        ->toContain('page.flash?.alert')
         ->toContain('text: alert.message')
         ->toContain('titleText: alert.title')
         ->not->toContain('${alert.message}')

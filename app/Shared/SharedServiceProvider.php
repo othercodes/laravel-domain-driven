@@ -72,12 +72,12 @@ class SharedServiceProvider extends BoundedContextServiceProvider
         // caller types is ours; the token is whatever the reader answers to.
         //
         // Inertia::flash rather than ->with(): a shared prop is written into
-        // the browser's history state and merged back on a partial reload, so
+        // the browser's history entry and merged back on a partial reload, so
         // a banner reappears on the Back button and a dialog re-opens on a
-        // page that never flashed it. Flash data is stripped from the history
-        // entry and dropped on the next response, which is what one-time
-        // means. It also spreads over whatever is already flashed, so a
-        // banner and an alert can ride the same redirect.
+        // page that never flashed it. Flash data is kept out of that entry and
+        // is pulled by the first response that renders a page, which is what
+        // one-time means. It also spreads over whatever is already flashed, so
+        // a banner and an alert can ride the same redirect.
 
         RedirectResponse::macro('withSuccessBanner', function (string $message) {
             /** @var RedirectResponse $this */

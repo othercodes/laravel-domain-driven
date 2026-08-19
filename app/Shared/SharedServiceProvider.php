@@ -16,6 +16,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Vite;
+use Inertia\Inertia;
 use Laravel\Fortify\Events\PasswordUpdatedViaController;
 
 /**
@@ -70,47 +71,68 @@ class SharedServiceProvider extends BoundedContextServiceProvider
         // whose icons are named success, error, warning and info. The name a
         // caller types is ours; the token is whatever the reader answers to.
         //
-        // Both flash through a dotted key so a redirect can carry a banner and
-        // an alert at once: flashing `flash` whole replaces it, and one of the
-        // two would quietly go missing.
+        // Inertia::flash rather than ->with(): a shared prop is written into
+        // the browser's history entry and merged back on a partial reload, so
+        // a banner reappears on the Back button and a dialog re-opens on a
+        // page that never flashed it. Flash data is kept out of that entry and
+        // is pulled by the first Inertia response that renders a page, which
+        // is what one-time means. It also spreads over whatever is already flashed, so
+        // a banner and an alert can ride the same redirect.
+
         RedirectResponse::macro('withSuccessBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', Banner::of('success', $message));
+            Inertia::flash('banner', Banner::of('success', $message));
+
+            return $this;
         });
 
         RedirectResponse::macro('withInfoBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', Banner::of('info', $message));
+            Inertia::flash('banner', Banner::of('info', $message));
+
+            return $this;
         });
 
         RedirectResponse::macro('withWarningBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', Banner::of('warning', $message));
+            Inertia::flash('banner', Banner::of('warning', $message));
+
+            return $this;
         });
 
         RedirectResponse::macro('withErrorBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', Banner::of('danger', $message));
+            Inertia::flash('banner', Banner::of('danger', $message));
+
+            return $this;
         });
 
         RedirectResponse::macro('withSuccessAlert', function (string $message, string $title = '') {
             /** @var RedirectResponse $this */
-            return $this->with('flash.alert', Alert::of('success', $message, $title));
+            Inertia::flash('alert', Alert::of('success', $message, $title));
+
+            return $this;
         });
 
         RedirectResponse::macro('withInfoAlert', function (string $message, string $title = '') {
             /** @var RedirectResponse $this */
-            return $this->with('flash.alert', Alert::of('info', $message, $title));
+            Inertia::flash('alert', Alert::of('info', $message, $title));
+
+            return $this;
         });
 
         RedirectResponse::macro('withWarningAlert', function (string $message, string $title = '') {
             /** @var RedirectResponse $this */
-            return $this->with('flash.alert', Alert::of('warning', $message, $title));
+            Inertia::flash('alert', Alert::of('warning', $message, $title));
+
+            return $this;
         });
 
         RedirectResponse::macro('withErrorAlert', function (string $message, string $title = '') {
             /** @var RedirectResponse $this */
-            return $this->with('flash.alert', Alert::of('error', $message, $title));
+            Inertia::flash('alert', Alert::of('error', $message, $title));
+
+            return $this;
         });
     }
 }

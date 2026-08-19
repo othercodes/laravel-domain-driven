@@ -46,6 +46,19 @@ test('it creates the handler and declares it in the provider', function () {
         ->and(php_parses($this->provider))->toBeTrue();
 });
 
+test('queued makes the handler implement ShouldQueue', function () {
+    $this->artisan('ldd:make:event-handler', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting', '--queued' => true,
+    ])->assertSuccessful();
+
+    $file = app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php');
+
+    expect(File::get($file))
+        ->toContain('use Illuminate\Contracts\Queue\ShouldQueue;')
+        ->toContain('final readonly class NotifyAccounting implements ShouldQueue')
+        ->and(php_parses($file))->toBeTrue();
+});
+
 test('it wires a handler whose short name the provider already imports', function () {
     // Handler and event names are free text, so either can land next to
     // something the provider already imports. Two imports resolving to one

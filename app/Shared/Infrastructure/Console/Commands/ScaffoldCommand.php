@@ -287,7 +287,11 @@ abstract class ScaffoldCommand extends Command
                 continue;
             }
 
-            if ($shortName($import) === $shortName($class)) {
+            // strcasecmp, not ===. PHP resolves class names case-insensitively,
+            // so `use Ours\HAsFactory;` beside Eloquent's HasFactory is the
+            // same fatal, and Str::studly leaves inner case alone: an aggregate
+            // asked for as `hAs` arrives here as `HAs`.
+            if (strcasecmp($shortName($import), $shortName($class)) === 0) {
                 return true;
             }
         }

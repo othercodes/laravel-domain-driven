@@ -38,6 +38,11 @@ test('it refuses a class whose short name an import already answers to', functio
 })->with([
     'another namespace' => 'App\Theirs\Widget',
     'an alias' => 'App\Theirs\Gadget as Widget',
+
+    // PHP resolves class names case-insensitively, and Str::studly leaves
+    // inner case alone, so an aggregate asked for as `wIdget` reaches this
+    // guard as `WIdget` and collides with a Widget already imported.
+    'the same name in another case' => 'App\Theirs\WIdget',
 ]);
 
 test('it adds the import when the short name is free', function (string $existing) {

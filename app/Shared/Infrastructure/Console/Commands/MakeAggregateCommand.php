@@ -466,10 +466,17 @@ final class MakeAggregateCommand extends ScaffoldCommand
         foreach ($uses as $class) {
             $imported = $this->withImport($model, $class);
 
-            // stubs/ is meant to be edited, so a stub with no namespace line
-            // is reachable. Say so rather than dying on a TypeError.
+            // Two reasons reach here and the fix differs, so neither may be
+            // guessed at. An aggregate named after something the stub already
+            // imports is the reachable one: `hAs` studlies to `HAs`, whose
+            // factory answers to the same name as Eloquent's HasFactory, and
+            // PHP compares those without case.
             if ($imported === null) {
-                $this->components->error("Could not add [{$class}] to the model: stubs/aggregate.model.stub needs a namespace declaration.");
+                $this->components->error("Could not add [{$class}] to the model.");
+                $this->components->bulletList([
+                    "Rename the aggregate if something the model already imports answers to the same short name as [{$class}].",
+                    'Otherwise stubs/aggregate.model.stub has no namespace declaration; it is meant to be edited, so that is reachable too.',
+                ]);
 
                 return false;
             }

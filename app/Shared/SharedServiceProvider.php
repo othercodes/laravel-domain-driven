@@ -75,8 +75,8 @@ class SharedServiceProvider extends BoundedContextServiceProvider
         // the browser's history entry and merged back on a partial reload, so
         // a banner reappears on the Back button and a dialog re-opens on a
         // page that never flashed it. Flash data is kept out of that entry and
-        // is pulled by the first response that renders a page, which is what
-        // one-time means. It also spreads over whatever is already flashed, so
+        // is pulled by the first Inertia response that renders a page, which
+        // is what one-time means. It also spreads over whatever is already flashed, so
         // a banner and an alert can ride the same redirect.
 
         RedirectResponse::macro('withSuccessBanner', function (string $message) {

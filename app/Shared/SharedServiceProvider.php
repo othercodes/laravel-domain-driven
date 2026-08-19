@@ -64,9 +64,12 @@ class SharedServiceProvider extends BoundedContextServiceProvider
     protected function extendRedirectResponses(): void
     {
         // Four names apiece, so reaching for one is a matter of autocompleting
-        // `withS` or `withE` and picking. Both flash through a dotted key so a
-        // redirect can carry a banner and an alert at once: flashing `flash`
-        // whole replaces it, and one of the two would quietly go missing.
+        // `withS` or `withE` and picking. The error pair flashes the style as
+        // `danger`, which is the word the CSS side of this has always used.
+        //
+        // Both flash through a dotted key so a redirect can carry a banner and
+        // an alert at once: flashing `flash` whole replaces it, and one of the
+        // two would quietly go missing.
         RedirectResponse::macro('withSuccessBanner', function (string $message) {
             /** @var RedirectResponse $this */
             return $this->with('flash.banner', Banner::of('success', $message));
@@ -84,7 +87,7 @@ class SharedServiceProvider extends BoundedContextServiceProvider
 
         RedirectResponse::macro('withErrorBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', Banner::of('error', $message));
+            return $this->with('flash.banner', Banner::of('danger', $message));
         });
 
         RedirectResponse::macro('withSuccessAlert', function (string $message, string $title = '') {
@@ -104,7 +107,7 @@ class SharedServiceProvider extends BoundedContextServiceProvider
 
         RedirectResponse::macro('withErrorAlert', function (string $message, string $title = '') {
             /** @var RedirectResponse $this */
-            return $this->with('flash.alert', Alert::of('error', $message, $title));
+            return $this->with('flash.alert', Alert::of('danger', $message, $title));
         });
     }
 }

@@ -22,7 +22,7 @@ test('every banner macro flashes what the component reads', function (string $ma
     'success' => ['withSuccessBanner', 'success'],
     'info' => ['withInfoBanner', 'info'],
     'warning' => ['withWarningBanner', 'warning'],
-    'error' => ['withErrorBanner', 'error'],
+    'error' => ['withErrorBanner', 'danger'],
 ]);
 
 test('every alert macro flashes the agreed shape', function (string $macro, string $style) {
@@ -37,7 +37,7 @@ test('every alert macro flashes the agreed shape', function (string $macro, stri
     'success' => ['withSuccessAlert', 'success'],
     'info' => ['withInfoAlert', 'info'],
     'warning' => ['withWarningAlert', 'warning'],
-    'error' => ['withErrorAlert', 'error'],
+    'error' => ['withErrorAlert', 'danger'],
 ]);
 
 test('an alert without a title carries an empty one rather than none', function () {
@@ -81,7 +81,7 @@ test('the component reads the keys the macros write, and styles every one', func
     // A style the palette does not carry renders unstyled, which is how info
     // and warning shipped: reachable from PHP, invisible on the page, and the
     // same was true of Jetstream upstream.
-    foreach (['success', 'info', 'warning', 'error'] as $style) {
+    foreach (['success', 'info', 'warning', 'danger'] as $style) {
         expect($component)->toContain("{$style}: { bar:");
     }
 });

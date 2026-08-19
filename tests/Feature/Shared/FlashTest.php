@@ -141,11 +141,16 @@ test('the dialog is driven by the flash alone, never by the errors prop', functi
     // every tick of a router.reload(). No amount of backend work fixes that,
     // because going Back sends no request at all.
     //
-    // Removing it cost nothing. Every page with a form prints each error in
-    // red under the field it belongs to, so the dialog said the same thing
-    // twice, further from where it could be fixed. A controller that wants an
-    // interruption asks for one with withErrorAlert().
-    $code = preg_replace('/^\s*\/\/.*$/m', '', $component);
+    // Removing it cost nothing. Every form here posts through useForm, whose
+    // onError fills form.errors, and every page renders those under the field
+    // they belong to, so the dialog said the same thing twice and further from
+    // where it could be fixed. A controller that wants an interruption asks
+    // for one with withErrorAlert().
+    //
+    // Comments are stripped first, both kinds: this is a claim about the code,
+    // and the next person to explain why errors are not read here should not
+    // have to word it around a test.
+    $code = preg_replace(['/\/\*.*?\*\//s', '/^\s*\/\/.*$/m'], '', $component);
 
     expect($code)->not->toContain('errors');
 });

@@ -12,32 +12,31 @@ const page = usePage();
 
 // The style token is SweetAlert2's own icon vocabulary, which is why the error
 // macro flashes `error` here while its banner counterpart flashes `danger`.
+//
 // Modal.vue opens a native <dialog> with showModal(), which puts it in the top
 // layer and makes everything behind it inert. A dialog mounted on the body then
 // renders underneath it, invisible and unclickable, and leaves its scroll lock
 // behind. So it is fired into whichever dialog is open, if one is.
-const dialog = (options) => Swal.fire({
-    target: document.querySelector('dialog[open]') ?? 'body',
-    buttonsStyling: true,
-    ...options,
-});
-
+//
 // `titleText` and `text`, never `title` or `html`. Both of the ones not used
 // here are parsed as markup and neither is sanitised, and a flashed alert is
 // free to carry whatever a controller interpolated into it: an account name, or
 // a filename that arrived from a form.
-const showAlert = (alert) => dialog({
+const showAlert = (alert) => Swal.fire({
+    target: document.querySelector('dialog[open]') ?? 'body',
+    buttonsStyling: true,
     icon: alert.style,
     titleText: alert.title || undefined,
     text: alert.message,
 });
 
-// Only what was flashed, never `page.props.errors`. Every form on every page
-// prints its errors in red under the field they belong to, so a dialog listing
-// them says the same thing twice, further from where it can be fixed. Worse,
-// errors are an ordinary prop: the browser keeps them in the history entry and
-// a partial reload merges them back, so the dialog reopened on the Back button
-// and on every scoped router.reload(). A flash cannot do that. It is gone once
+// Only what was flashed, never `page.props.errors`. Every form here posts
+// through useForm, whose onError fills `form.errors`, and every page renders
+// those under the field they belong to, so a dialog listing them says the same
+// thing twice and further from where it can be fixed. Worse, errors are an
+// ordinary prop: the browser keeps them in the history entry and a scoped
+// reload merges them back, so the dialog reopened on the Back button and on
+// every tick of a router.reload(). A flash cannot do that. It is gone once
 // read, which is the whole reason a one-off interruption travels as one.
 watchEffect(() => {
     const alert = page.flash?.alert;

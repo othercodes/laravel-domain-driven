@@ -8,17 +8,19 @@ use Illuminate\Filesystem\Filesystem;
  *
  * It used to dedupe on the whole class name alone, which let it put
  * Theirs\Widget next to Ours\Widget: two imports answering to one short name,
- * which PHP rejects at compile time. Five callers passed generated names into
- * files whose contents are not ours to predict, and the one that had already
- * caused the fatal was fixed on its own, in place, with the reasoning written
- * out as a comment beside it. The other four carried on.
+ * which PHP rejects at compile time.
  *
- * The three commands now write those entries fully qualified and import
- * nothing, so this guard is what stands between the next caller and the same
- * afternoon. Its only two remaining callers write into files this run
- * generated, so nothing else exercises it.
+ * This had been met once already, on the $commands array, and answered there
+ * by writing the entry out in full and importing nothing. The reasoning went
+ * into a comment beside that one append. Five withImport() calls went on
+ * passing generated names into files whose contents are not ours to predict,
+ * because the answer had been written down as a note rather than as code.
+ *
+ * Those five are gone, so the guard below has no reachable caller left: both
+ * that remain write into files the same run generated. That is the point of
+ * testing it here. It exists for the caller nobody has written yet.
  */
-function importer(): object
+function scaffold_importer(): object
 {
     return new class(new Filesystem) extends ScaffoldCommand
     {
@@ -32,7 +34,7 @@ function importer(): object
 test('it refuses a class whose short name an import already answers to', function (string $existing) {
     $contents = "<?php\n\nnamespace App;\n\nuse {$existing};\n";
 
-    expect(importer()->import($contents, 'App\Ours\Widget'))->toBeNull();
+    expect(scaffold_importer()->import($contents, 'App\Ours\Widget'))->toBeNull();
 })->with([
     'another namespace' => 'App\Theirs\Widget',
     'an alias' => 'App\Theirs\Gadget as Widget',
@@ -41,7 +43,7 @@ test('it refuses a class whose short name an import already answers to', functio
 test('it adds the import when the short name is free', function (string $existing) {
     $contents = "<?php\n\nnamespace App;\n\nuse {$existing};\n";
 
-    expect(importer()->import($contents, 'App\Ours\Widget'))
+    expect(scaffold_importer()->import($contents, 'App\Ours\Widget'))
         ->toContain('use App\Ours\Widget;');
 })->with([
     // Aliased away, so Widget is free and Gadget is the name that is taken.
@@ -59,5 +61,5 @@ test('the same class asked for twice is left alone rather than refused', functio
     // failure to wire.
     $contents = "<?php\n\nnamespace App;\n\nuse App\Ours\Widget;\n";
 
-    expect(importer()->import($contents, 'App\Ours\Widget'))->toBe($contents);
+    expect(scaffold_importer()->import($contents, 'App\Ours\Widget'))->toBe($contents);
 });

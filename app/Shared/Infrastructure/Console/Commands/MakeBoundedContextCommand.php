@@ -150,8 +150,7 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
     }
 
     /**
-     * Adds the provider to bootstrap/providers.php, keeping the list sorted
-     * the way the file already is.
+     * Adds the provider to bootstrap/providers.php.
      */
     private function registerProvider(string $context): bool
     {
@@ -159,11 +158,11 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
         $contents = $this->files->get($file);
         $class = "App\\{$context}\\{$context}ServiceProvider";
 
-        // Asked of the array itself. Laravel's own providers.php lists classes
-        // fully qualified and this command adds an import and the short name;
-        // resolved through the file's imports both name the same class, and
-        // neither an import on its own nor a mention in a comment counts.
-
+        // Asked of the array itself, resolved through whatever imports the
+        // file has. Laravel lists these fully qualified, an earlier version of
+        // this command listed them by short name behind an import, and either
+        // way the entry names the same class. An import on its own does not
+        // count as registered, and neither does a mention in a comment.
         $listed = SourceFile::at($file);
 
         if (! $listed->parsed()) {
@@ -186,9 +185,8 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
         // files it means nothing boots at all.
         $updated = $this->appendToList($contents, 'return [', "    \\{$class}::class,", '');
 
-        // Appending the short name without its import leaves an unqualified
-        // reference, and adding the import without the entry leaves a context
-        // nothing ever loads. Both are silent, so neither may report green.
+        // A list this could not find is a context nothing ever loads, and
+        // silently: the provider file sits there looking finished. Say so.
         if ($updated === null) {
             $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=red>could not be updated</>');
             $this->components->warn("Register {$class} in bootstrap/providers.php by hand.");

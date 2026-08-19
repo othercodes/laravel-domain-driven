@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import ApplicationMark from '@/Components/ApplicationMark.vue';
+import Alert from '@/Components/Alert.vue';
 import Banner from '@/Components/Banner.vue';
 import Dropdown from '@/Components/Dropdown.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
@@ -24,6 +25,7 @@ const logout = () => {
         <Head :title="title" />
 
         <Banner />
+        <Alert />
 
         <div class="min-h-screen bg-gray-100">
             <nav class="bg-white border-b border-gray-100">
@@ -51,7 +53,7 @@ const logout = () => {
                             <div class="ms-3 relative">
                                 <Dropdown align="right" width="48">
                                     <template #trigger>
-                                        <button v-if="$page.props.jetstream.managesProfilePhotos" class="flex text-sm border-2 border-transparent rounded-full focus:outline-none focus:border-gray-300 transition">
+                                        <button v-if="$page.props.context.managesProfilePhotos" class="flex text-sm border-2 border-transparent rounded-full focus:outline-none focus:border-gray-300 transition">
                                             <img class="size-8 rounded-full object-cover" :src="$page.props.auth.user.profile_photo_url" :alt="$page.props.auth.user.name">
                                         </button>
 
@@ -129,7 +131,7 @@ const logout = () => {
                     <!-- Responsive Settings Options -->
                     <div class="pt-4 pb-1 border-t border-gray-200">
                         <div class="flex items-center px-4">
-                            <div v-if="$page.props.jetstream.managesProfilePhotos" class="shrink-0 me-3">
+                            <div v-if="$page.props.context.managesProfilePhotos" class="shrink-0 me-3">
                                 <img class="size-10 rounded-full object-cover" :src="$page.props.auth.user.profile_photo_url" :alt="$page.props.auth.user.name">
                             </div>
 

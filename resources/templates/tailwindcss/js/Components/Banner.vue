@@ -8,8 +8,8 @@ const style = ref('success');
 const message = ref('');
 
 watchEffect(async () => {
-    style.value = page.props.jetstream.flash?.banner?.style || 'success';
-    message.value = page.props.jetstream.flash?.banner?.message || '';
+    style.value = page.props.context.flash?.banner?.style || 'success';
+    message.value = page.props.context.flash?.banner?.message || '';
     show.value = true;
 });
 

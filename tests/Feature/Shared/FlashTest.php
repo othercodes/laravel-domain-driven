@@ -37,7 +37,7 @@ test('every alert macro flashes the agreed shape', function (string $macro, stri
     'success' => ['withSuccessAlert', 'success'],
     'info' => ['withInfoAlert', 'info'],
     'warning' => ['withWarningAlert', 'warning'],
-    'error' => ['withErrorAlert', 'danger'],
+    'error' => ['withErrorAlert', 'error'],
 ]);
 
 test('an alert without a title carries an empty one rather than none', function () {
@@ -84,4 +84,21 @@ test('the component reads the keys the macros write, and styles every one', func
     foreach (['success', 'info', 'warning', 'danger'] as $style) {
         expect($component)->toContain("{$style}: { bar:");
     }
+});
+
+test('the alert dialog is handed text, never markup built from the message', function () {
+    $component = File::get(base_path('resources/templates/tailwindcss/js/Components/Alert.vue'));
+
+    // SweetAlert2 does not sanitise `html`, and a flashed message carries
+    // whatever a controller interpolated into it. Interpolating it into markup
+    // is how a filename or an account name becomes a script tag.
+    expect($component)
+        ->toContain('text: alert.message')
+        ->not->toContain('${alert.message}');
+});
+
+test('the shared props are published under context', function () {
+    // Renamed from `jetstream`: the package is not a dependency, and every
+    // component that reads a feature flag reads it from here.
+    $this->get('/login')->assertInertia(fn ($page) => $page->has('context.flash'));
 });

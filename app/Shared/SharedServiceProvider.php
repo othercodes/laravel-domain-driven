@@ -64,8 +64,11 @@ class SharedServiceProvider extends BoundedContextServiceProvider
     protected function extendRedirectResponses(): void
     {
         // Four names apiece, so reaching for one is a matter of autocompleting
-        // `withS` or `withE` and picking. The error pair flashes the style as
-        // `danger`, which is the word the CSS side of this has always used.
+        // `withS` or `withE` and picking. The two error macros flash different
+        // words, `danger` for the banner and `error` for the alert, because
+        // they are read by different things: a CSS palette and SweetAlert2,
+        // whose icons are named success, error, warning and info. The name a
+        // caller types is ours; the token is whatever the reader answers to.
         //
         // Both flash through a dotted key so a redirect can carry a banner and
         // an alert at once: flashing `flash` whole replaces it, and one of the
@@ -107,7 +110,7 @@ class SharedServiceProvider extends BoundedContextServiceProvider
 
         RedirectResponse::macro('withErrorAlert', function (string $message, string $title = '') {
             /** @var RedirectResponse $this */
-            return $this->with('flash.alert', Alert::of('danger', $message, $title));
+            return $this->with('flash.alert', Alert::of('error', $message, $title));
         });
     }
 }

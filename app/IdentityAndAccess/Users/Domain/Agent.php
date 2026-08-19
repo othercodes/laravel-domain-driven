@@ -60,7 +60,7 @@ class Agent extends MobileDetect
      */
     public function platform(): ?string
     {
-        return $this->retrieveUsingCacheOrResolve('jetstream.platform', function () {
+        return $this->retrieveUsingCacheOrResolve('agent.platform', function () {
             return $this->findDetectionRulesAgainstUserAgent(
                 $this->mergeRules(MobileDetect::getOperatingSystems(), static::$additionalOperatingSystems)
             );
@@ -72,7 +72,7 @@ class Agent extends MobileDetect
      */
     public function browser(): ?string
     {
-        return $this->retrieveUsingCacheOrResolve('jetstream.browser', function () {
+        return $this->retrieveUsingCacheOrResolve('agent.browser', function () {
             return $this->findDetectionRulesAgainstUserAgent(
                 $this->mergeRules(static::$additionalBrowsers, MobileDetect::getBrowsers())
             );
@@ -84,7 +84,7 @@ class Agent extends MobileDetect
      */
     public function isDesktop(): ?bool
     {
-        return $this->retrieveUsingCacheOrResolve('jetstream.desktop', function () {
+        return $this->retrieveUsingCacheOrResolve('agent.desktop', function () {
             // Check specifically for cloudfront headers if the useragent === 'Amazon CloudFront'
             if (
                 $this->getUserAgent() === static::$cloudFrontUA

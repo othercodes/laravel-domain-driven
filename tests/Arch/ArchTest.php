@@ -166,6 +166,24 @@ arch('shared context does not depend on any bounded context')
     ->not->toUse(array_map(fn (string $c): string => 'App\\'.$c, $boundedContexts));
 
 /*
+ * One file under app/Shared is exempt from the rule above, and not by anyone's
+ * decision: DatabaseSeeder declares the Database\Seeders namespace, which
+ * composer.json maps into Shared so that `db:seed` resolves it with no
+ * --class. The rule matches on namespace, so it never sees the file, and the
+ * file does reach into every context on purpose, the way
+ * bootstrap/providers.php does.
+ *
+ * The exemption is fine. Its being silent is not: any second file added there
+ * would inherit it without anyone noticing. So the exception is pinned to the
+ * one file that earns it, and a new one has to be argued for here first.
+ */
+test('the seeders directory in Shared holds only the root seeder', function () use ($appPath) {
+    $files = array_map('basename', glob($appPath.'/Shared/Infrastructure/Persistence/Seeders/*.php') ?: []);
+
+    expect($files)->toBe(['DatabaseSeeder.php']);
+});
+
+/*
 |--------------------------------------------------------------------------
 | Service Providers
 |--------------------------------------------------------------------------

@@ -138,6 +138,23 @@ test('queued leaves a handler it did not write alone', function () {
 
     expect(File::get(app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php')))
         ->not->toContain('ShouldQueue');
+
+    // A handler holding no such class says "implements nothing" just as loudly
+    // as one that is simply not queued, and the advice for the two differs.
+    File::put(app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php'), "<?php\n");
+
+    // The run above wired the event back, and a second handler for one already
+    // mapped is refused before the hint is ever reached.
+    File::put($this->provider, str_replace(
+        '        WidgetCreated::class => NotifyAccounting::class,'."\n",
+        '',
+        File::get($this->provider)
+    ));
+
+    $this->artisan('ldd:make:event-handler', $args + ['--queued' => true])
+        ->expectsOutputToContain('could not be read')
+        ->doesntExpectOutputToContain('Add `implements ShouldQueue` to it by hand')
+        ->assertSuccessful();
 });
 
 test('it does not claim to have created a handler it skipped', function () {

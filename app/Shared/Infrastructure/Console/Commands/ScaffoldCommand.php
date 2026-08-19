@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
+use App\Shared\Infrastructure\Console\Support\SourceFile;
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Str;
@@ -162,6 +163,47 @@ abstract class ScaffoldCommand extends Command
     protected function relative(string $path): string
     {
         return Str::after($path, base_path().DIRECTORY_SEPARATOR);
+    }
+
+    /**
+     * Whether anything in an aggregate's application layer publishes its
+     * recorded domain events.
+     *
+     * Two commands ask this before advising a use case that publishes, and
+     * they have no business disagreeing about the answer. They did, once: one
+     * learned to skip a file it could not read and the other went on treating
+     * unreadable as "does not publish", which is how you get told to write a
+     * use case that is sitting in the file nobody could parse. One
+     * implementation is the only thing that keeps the two honest.
+     *
+     * Files that do not parse are returned rather than counted either way,
+     * since any of them may be the use case that publishes.
+     *
+     * @return array{publishes: bool, unreadable: list<string>}
+     */
+    protected function publishesDomainEvents(string $applicationPath): array
+    {
+        $unreadable = [];
+
+        if (! $this->files->isDirectory($applicationPath)) {
+            return ['publishes' => false, 'unreadable' => []];
+        }
+
+        foreach ($this->files->allFiles($applicationPath) as $file) {
+            $source = SourceFile::at($file->getPathname());
+
+            if (! $source->parsed()) {
+                $unreadable[] = $this->relative($file->getPathname());
+
+                continue;
+            }
+
+            if ($source->calls('publishDomainEvents')) {
+                return ['publishes' => true, 'unreadable' => []];
+            }
+        }
+
+        return ['publishes' => false, 'unreadable' => $unreadable];
     }
 
     /**

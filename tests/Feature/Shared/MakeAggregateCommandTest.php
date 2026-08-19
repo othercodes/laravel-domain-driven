@@ -407,6 +407,20 @@ test('it stays quiet when the application layer already publishes', function () 
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
         ->doesntExpectOutputToContain('Nothing publishes WidgetCreated.')
         ->assertSuccessful();
+
+    // One it cannot read may be the use case that publishes, and both commands
+    // ask this through one helper so they cannot answer it differently.
+    File::put("{$application}/CreateWidget.php", "<?php\n\nclass CreateWidget {\n");
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
+        ->expectsOutputToContain('Could not tell whether anything publishes')
+        ->doesntExpectOutputToContain('Nothing publishes WidgetCreated.')
+        ->assertSuccessful();
+
+    $this->artisan('ldd:make:use-case', ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'UpdateWidget'])
+        ->expectsOutputToContain('Could not tell whether anything publishes')
+        ->doesntExpectOutputToContain('records domain events')
+        ->assertSuccessful();
 });
 
 test('it does not re-advise a route the file already declares', function () {
@@ -468,6 +482,51 @@ test('it refuses a migration for a table the model does not declare', function (
 
     expect(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*.php')))
         ->toHaveCount(1);
+});
+
+/*
+ * Every question this command asks of an existing model answers false when it
+ * does not parse, so unreadable would otherwise read as "declares no table",
+ * which is exactly what the guard above takes as permission to proceed.
+ */
+test('it refuses to reason about a model it cannot read', function (string $contents, string $reason) {
+    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true];
+
+    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
+
+    File::put(app_path('ScaffoldFixture/Widgets/Domain/Widget.php'), $contents);
+
+    $this->artisan('ldd:make:aggregate', $args + ['--table' => 'renamed'])
+        ->expectsOutputToContain($reason)
+        ->assertFailed();
+
+    // The mismatched migration an unread model would have waved through: a
+    // second create table for an aggregate that already has one.
+    expect(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*.php')))
+        ->toHaveCount(1);
+})->with([
+    // Answers false to every question because it never parsed.
+    'unparseable' => ["<?php\n\nclass Widget extends Model {\n", 'does not parse'],
+    // Parses perfectly well, and holds no aggregate to answer for.
+    'empty' => ["<?php\n", 'declares no class Widget'],
+    // Parses, holds a class, but not the one being reasoned about.
+    'another class' => ["<?php\n\nclass Gadget {}\n", 'declares no class Widget'],
+]);
+
+test('it says a DatabaseSeeder it cannot read is unread, rather than advising a duplicate', function () {
+    $seeder = app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php');
+    $backup = File::get($seeder);
+
+    File::put($seeder, "<?php\n\nnamespace Database\Seeders;\n\nclass DatabaseSeeder {\n");
+
+    try {
+        $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true])
+            ->expectsOutputToContain('does not parse')
+            ->doesntExpectOutputToContain('WidgetSeeder::class,')
+            ->assertSuccessful();
+    } finally {
+        File::put($seeder, $backup);
+    }
 });
 
 test('re-running adds the missing piece without touching the model', function () {

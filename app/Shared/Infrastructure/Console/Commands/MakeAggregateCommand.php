@@ -108,10 +108,32 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // the migration may already have been applied.
         $modelExisted = $this->files->exists("{$path}/Domain/{$this->aggregate}.php");
 
+        // A file on disk is not the same as an aggregate that can be read.
+        // Every question below answers false for a file that does not parse
+        // and for one that holds no class at all, and false read off either is
+        // not a fact about the aggregate: the table guard would wave a
+        // mismatched migration through, and the hints would advise adding what
+        // is already there. So the question asked is whether the class was
+        // found, not whether the file parsed.
+        $model = SourceFile::at("{$path}/Domain/{$this->aggregate}.php");
+
+        if ($modelExisted && ! $model->declaresClass($this->aggregate)) {
+            $reason = $model->parsed()
+                ? "declares no class {$this->aggregate}"
+                : 'does not parse';
+
+            $this->components->error("[{$this->aggregate}] could not be read: {$this->relative("{$path}/Domain/{$this->aggregate}.php")} {$reason}.");
+            $this->components->bulletList([
+                'Fix it, then run this again.',
+            ]);
+
+            return self::FAILURE;
+        }
+
         // The model is never rewritten, so a migration for a table it does not
         // declare creates one nothing reads, next to the one it does use.
         if ($this->wants('migration') && $modelExisted) {
-            $declared = $this->tableDeclaredIn("{$path}/Domain/{$this->aggregate}.php");
+            $declared = $model->propertyString('table');
 
             if ($declared !== null && $declared !== $this->table) {
                 $this->components->error("[{$this->aggregate}] declares table [{$declared}], not [{$this->table}].");
@@ -147,7 +169,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $this->newLine();
         $this->components->info("Aggregate [{$this->aggregate}] ".($modelExisted ? 'updated' : 'created')." in [{$this->context}].");
 
-        $this->printModelHints($path, $modelExisted);
+        $this->printModelHints($model, $modelExisted);
         $this->printEventHints($path);
         $this->printSeederHints();
         $this->printRouteHints();
@@ -164,7 +186,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * rewritten once it exists. Adding either option later costs a line or
      * two by hand, which is the price of never losing what the model grew.
      */
-    private function printModelHints(string $path, bool $modelExisted): void
+    private function printModelHints(SourceFile $model, bool $modelExisted): void
     {
         if (! $modelExisted) {
             return;
@@ -172,8 +194,9 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         // What the model already carries decides this, not the flags: running
         // the same command twice would otherwise advise redeclaring
-        // newFactory(), which is fatal, and registering the event twice.
-        $model = SourceFile::at("{$path}/Domain/{$this->aggregate}.php");
+        // newFactory(), which is fatal, and registering the event twice. It is
+        // the instance handle() already read, so a model that does not parse
+        // never reaches here to be read as carrying nothing.
         $lines = [];
 
         if ($this->wants('events') && ! $model->calls('registerDomainEvent')) {
@@ -220,15 +243,26 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return;
         }
 
-        // What the aggregate's application layer already does decides this.
-        $application = "{$path}/Application";
+        // What the aggregate's application layer already does decides this,
+        // asked through the shared helper so this command and ldd:make:use-case
+        // cannot answer it differently.
+        $answer = $this->publishesDomainEvents("{$path}/Application");
 
-        if ($this->files->isDirectory($application)) {
-            foreach ($this->files->allFiles($application) as $file) {
-                if (SourceFile::at($file->getPathname())->calls('publishDomainEvents')) {
-                    return;
-                }
+        if ($answer['publishes']) {
+            return;
+        }
+
+        // One of them may well be the use case that publishes, so the advice
+        // below would be telling somebody to write what they already have.
+        if ($answer['unreadable'] !== []) {
+            $this->newLine();
+            $this->line("  <fg=yellow>Could not tell whether anything publishes {$this->aggregate}Created: these do not parse:</>");
+
+            foreach ($answer['unreadable'] as $file) {
+                $this->line("  <fg=gray>{$file}</>");
             }
+
+            return;
         }
 
         $this->newLine();
@@ -254,13 +288,23 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $file = app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php');
         $class = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\Seeders\\{$this->aggregate}Seeder";
 
+        $seeder = SourceFile::at($file);
+
         // What DatabaseSeeder already lists decides this, not the flag, so
         // re-running to add another option does not advise a second entry.
-        if (SourceFile::at($file)->references($class)) {
+        if ($seeder->references($class)) {
             return;
         }
 
         $this->newLine();
+
+        // It may already list the entry, so say what is wrong rather than
+        // advise adding a duplicate to a file that has to be fixed first.
+        if ($this->files->exists($file) && ! $seeder->parsed()) {
+            $this->line("  <fg=yellow>{$this->relative($file)} does not parse, so whether it lists {$this->aggregate}Seeder could not be checked.</>");
+
+            return;
+        }
 
         if (! $this->files->exists($file)) {
             $this->line("  <fg=yellow>{$this->aggregate}Seeder will not run: no DatabaseSeeder at {$this->relative($file)}.</>");
@@ -324,11 +368,22 @@ final class MakeAggregateCommand extends ScaffoldCommand
             //
             // Asked by its full name, which is what tells the web controller
             // from the one under API: they share a short name.
-            if (SourceFile::at($file)->references($snippet['controller'])) {
+            $routes = SourceFile::at($file);
+
+            if ($routes->references($snippet['controller'])) {
                 continue;
             }
 
             $this->newLine();
+
+            // It may already declare the route, so pasting the canonical one
+            // back would replace whatever middleware it was wrapped in.
+            if ($this->files->exists($file) && ! $routes->parsed()) {
+                $this->line("  <fg=yellow>{$this->relative($file)} does not parse, so whether it declares the {$kind} route could not be checked.</>");
+
+                continue;
+            }
+
             $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
 
             foreach ($snippet['lines'] as $line) {
@@ -350,11 +405,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
             $this->newLine();
             $this->line("  Create the page at <options=bold>{$this->relative($page)}</>");
         }
-    }
-
-    private function tableDeclaredIn(string $model): ?string
-    {
-        return SourceFile::at($model)->propertyString('table');
     }
 
     /**

@@ -125,7 +125,19 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
      */
     private function printQueuedHint(string $file, string $name): void
     {
-        if (SourceFile::at($file)->implementsInterface('Illuminate\\Contracts\\Queue\\ShouldQueue')) {
+        $handler = SourceFile::at($file);
+
+        // Asked before concluding anything from what the file does not hold. A
+        // file that does not parse, and one holding no such class at all, both say
+        // "implements nothing", and telling somebody to add an interface to a
+        // class that is not there names the wrong problem.
+        if (! $handler->declaresClass($name)) {
+            $this->components->warn("{$name} already existed but could not be read from {$this->relative($file)}, so whether it is queued is unknown.");
+
+            return;
+        }
+
+        if ($handler->implementsInterface('Illuminate\\Contracts\\Queue\\ShouldQueue')) {
             return;
         }
 

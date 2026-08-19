@@ -6,6 +6,7 @@ use App\Shared\Infrastructure\Console\Commands\MakeAggregateCommand;
 use App\Shared\Infrastructure\Console\Commands\MakeBoundedContextCommand;
 use App\Shared\Infrastructure\Console\Commands\MakeEventHandlerCommand;
 use App\Shared\Infrastructure\Console\Commands\MakeUseCaseCommand;
+use App\Shared\Infrastructure\Http\Banner;
 use ComplexHeart\Domain\Contracts\Events\EventBus;
 use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;
 use ComplexHeart\Infrastructure\Laravel\ServiceBus\IlluminateEventBus;
@@ -61,36 +62,28 @@ class SharedServiceProvider extends BoundedContextServiceProvider
 
     protected function extendRedirectResponses(): void
     {
-        RedirectResponse::macro('withInfoBanner', function ($message) {
+        // Four names, so reaching for one is a matter of autocompleting
+        // `withB` and picking, with the payload built in one place. These four
+        // already agreed with each other; what none of them agreed with was
+        // Banner.vue, which was still reading Jetstream's flat pair.
+        RedirectResponse::macro('withSuccessBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', [
-                'style' => 'info',
-                'message' => $message,
-            ]);
+            return $this->with('flash', Banner::of('success', $message));
         });
 
-        RedirectResponse::macro('withSuccessBanner', function ($message) {
+        RedirectResponse::macro('withInfoBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', [
-                'style' => 'success',
-                'message' => $message,
-            ]);
+            return $this->with('flash', Banner::of('info', $message));
         });
 
-        RedirectResponse::macro('withWarningBanner', function ($message) {
+        RedirectResponse::macro('withWarningBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', [
-                'style' => 'warning',
-                'message' => $message,
-            ]);
+            return $this->with('flash', Banner::of('warning', $message));
         });
 
-        RedirectResponse::macro('withDangerBanner', function ($message) {
+        RedirectResponse::macro('withDangerBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', [
-                'style' => 'danger',
-                'message' => $message,
-            ]);
+            return $this->with('flash', Banner::of('danger', $message));
         });
 
         RedirectResponse::macro('withSuccessAlert', function (string $message, string $title = 'Done!') {

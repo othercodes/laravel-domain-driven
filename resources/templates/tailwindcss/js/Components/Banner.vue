@@ -20,7 +20,7 @@ const palette = {
     success: { bar: 'bg-indigo-500', badge: 'bg-indigo-600', button: 'hover:bg-indigo-600 focus:bg-indigo-600', icon: 'check' },
     info: { bar: 'bg-blue-500', badge: 'bg-blue-600', button: 'hover:bg-blue-600 focus:bg-blue-600', icon: 'info' },
     warning: { bar: 'bg-yellow-500', badge: 'bg-yellow-600', button: 'hover:bg-yellow-600 focus:bg-yellow-600', icon: 'alert' },
-    danger: { bar: 'bg-red-700', badge: 'bg-red-600', button: 'hover:bg-red-600 focus:bg-red-600', icon: 'alert' },
+    error: { bar: 'bg-red-700', badge: 'bg-red-600', button: 'hover:bg-red-600 focus:bg-red-600', icon: 'alert' },
 };
 
 // An unknown style renders as success rather than unstyled: a banner with no

@@ -6,6 +6,7 @@ use App\Shared\Infrastructure\Console\Commands\MakeAggregateCommand;
 use App\Shared\Infrastructure\Console\Commands\MakeBoundedContextCommand;
 use App\Shared\Infrastructure\Console\Commands\MakeEventHandlerCommand;
 use App\Shared\Infrastructure\Console\Commands\MakeUseCaseCommand;
+use App\Shared\Infrastructure\Http\Alert;
 use App\Shared\Infrastructure\Http\Banner;
 use ComplexHeart\Domain\Contracts\Events\EventBus;
 use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;
@@ -62,46 +63,48 @@ class SharedServiceProvider extends BoundedContextServiceProvider
 
     protected function extendRedirectResponses(): void
     {
-        // Four names, so reaching for one is a matter of autocompleting
-        // `withB` and picking, with the payload built in one place. These four
-        // already agreed with each other; what none of them agreed with was
-        // Banner.vue, which was still reading Jetstream's flat pair.
+        // Four names apiece, so reaching for one is a matter of autocompleting
+        // `withS` or `withE` and picking. Both flash through a dotted key so a
+        // redirect can carry a banner and an alert at once: flashing `flash`
+        // whole replaces it, and one of the two would quietly go missing.
         RedirectResponse::macro('withSuccessBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash', Banner::of('success', $message));
+            return $this->with('flash.banner', Banner::of('success', $message));
         });
 
         RedirectResponse::macro('withInfoBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash', Banner::of('info', $message));
+            return $this->with('flash.banner', Banner::of('info', $message));
         });
 
         RedirectResponse::macro('withWarningBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash', Banner::of('warning', $message));
+            return $this->with('flash.banner', Banner::of('warning', $message));
         });
 
-        RedirectResponse::macro('withDangerBanner', function (string $message) {
+        RedirectResponse::macro('withErrorBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash', Banner::of('danger', $message));
+            return $this->with('flash.banner', Banner::of('error', $message));
         });
 
-        RedirectResponse::macro('withSuccessAlert', function (string $message, string $title = 'Done!') {
+        RedirectResponse::macro('withSuccessAlert', function (string $message, string $title = '') {
             /** @var RedirectResponse $this */
-            return $this->with('flash.alert', [
-                'style' => 'success',
-                'title' => $title,
-                'text' => $message,
-            ]);
+            return $this->with('flash.alert', Alert::of('success', $message, $title));
         });
 
-        RedirectResponse::macro('withErrorAlert', function (string $message, string $title = 'Oops...') {
+        RedirectResponse::macro('withInfoAlert', function (string $message, string $title = '') {
             /** @var RedirectResponse $this */
-            return $this->with('flash.alert', [
-                'style' => 'danger',
-                'title' => $title,
-                'text' => $message,
-            ]);
+            return $this->with('flash.alert', Alert::of('info', $message, $title));
+        });
+
+        RedirectResponse::macro('withWarningAlert', function (string $message, string $title = '') {
+            /** @var RedirectResponse $this */
+            return $this->with('flash.alert', Alert::of('warning', $message, $title));
+        });
+
+        RedirectResponse::macro('withErrorAlert', function (string $message, string $title = '') {
+            /** @var RedirectResponse $this */
+            return $this->with('flash.alert', Alert::of('error', $message, $title));
         });
     }
 }

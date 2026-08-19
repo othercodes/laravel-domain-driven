@@ -19,15 +19,15 @@ namespace App\Shared\Infrastructure\Http;
 final class Banner
 {
     /**
-     * Returned whole so a caller flashes it under `flash` in one go. Passing
-     * `flash.banner` instead would land the very same array, since the session
-     * expands the dots, so this buys nothing at runtime: it puts the shape the
-     * component reads in front of the reader rather than behind that rule.
+     * Flashed at `flash.banner`, never as a whole `flash` array: the session
+     * expands the dots into the same place, and it leaves room beside it for
+     * an alert flashed by the same redirect. Writing `flash` entire replaces
+     * whatever was there, so the two would silently take turns.
      *
-     * @return array{banner: array{message: string, style: string}}
+     * @return array{message: string, style: string}
      */
     public static function of(string $style, string $message): array
     {
-        return ['banner' => ['message' => $message, 'style' => $style]];
+        return ['message' => $message, 'style' => $style];
     }
 }

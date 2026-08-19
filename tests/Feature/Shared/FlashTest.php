@@ -102,7 +102,8 @@ test('the alert dialog is handed text, never markup, message and title alike', f
         ->toContain('text: alert.message')
         ->toContain('titleText: alert.title')
         ->not->toContain('${alert.message}')
-        ->not->toContain('title: ');
+        ->not->toContain('title: ')
+        ->not->toContain('html:');
 });
 
 test('the dialog opens inside a modal that is already open', function () {
@@ -131,13 +132,22 @@ test('the alert component is mounted beside the page, not inside a layout', func
         ->not->toContain('Alert');
 });
 
-test('an explicit alert is not destroyed by the validation dialog', function () {
+test('the dialog is driven by the flash alone, never by the errors prop', function () {
     $component = File::get(base_path('resources/templates/tailwindcss/js/Components/Alert.vue'));
 
-    // Only one SweetAlert2 dialog can be open, so firing a second destroys the
-    // first. A response carrying both an alert and errors would otherwise show
-    // the field names and swallow the sentence somebody wrote.
-    expect($component)->toMatch('/if \(alert\) \{\s*showAlert\(alert\);\s*return;/');
+    // The dialog used to fire for validation errors as well. Those are an
+    // ordinary prop, so the browser kept them in the history entry and a
+    // scoped reload merged them back: it reopened on the Back button and on
+    // every tick of a router.reload(). No amount of backend work fixes that,
+    // because going Back sends no request at all.
+    //
+    // Removing it cost nothing. Every page with a form prints each error in
+    // red under the field it belongs to, so the dialog said the same thing
+    // twice, further from where it could be fixed. A controller that wants an
+    // interruption asks for one with withErrorAlert().
+    $code = preg_replace('/^\s*\/\/.*$/m', '', $component);
+
+    expect($code)->not->toContain('errors');
 });
 
 test('the shared props are published under context', function () {

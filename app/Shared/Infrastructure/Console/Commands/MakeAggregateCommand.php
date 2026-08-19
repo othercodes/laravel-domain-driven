@@ -627,7 +627,15 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         $contract = "App\\{$this->context}\\{$this->plural}\\Domain\\Contracts\\{$this->aggregate}Repository";
         $eloquent = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\Eloquent{$this->aggregate}Repository";
-        $binding = "        {$this->aggregate}Repository::class => Eloquent{$this->aggregate}Repository::class,";
+        // Every entry this method appends is written out in full rather than
+        // imported under its short name. Aggregate and command names are free
+        // text: two aggregates in one context may each want a SyncThings, and
+        // an aggregate called Widget puts a WidgetRepository beside whatever
+        // the provider already imports. Two imports resolving to one short
+        // name is a compile-time fatal, and because the provider is loaded
+        // from bootstrap/providers.php it takes down every request and every
+        // artisan call, including the one needed to undo it.
+        $binding = "        \\{$contract}::class => \\{$eloquent}::class,";
 
         $contents = $this->files->get($file);
 
@@ -647,9 +655,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
 
         if (! in_array($contract, $declared->propertyKeys('bindings'), true)) {
-            $contents = $this->withImport($contents, $contract);
-            $contents = $contents === null ? null : $this->withImport($contents, $eloquent);
-            $contents = $contents === null ? null : $this->appendToArray($contents, 'bindings', $binding);
+            $contents = $this->appendToArray($contents, 'bindings', $binding);
         }
 
         if ($contents !== null && $this->wants('migration')) {
@@ -670,13 +676,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
                 continue;
             }
 
-            // Written out in full rather than imported under its short name.
-            // A console command's name is free text, so two aggregates in one
-            // context may each have a SyncThings, and one may be called
-            // WidgetRepository like something the provider already imports.
-            // Two use statements resolving to the same short name is a fatal
-            // error that takes the whole application down, not just this
-            // context. $migrations avoids it the same way, by holding strings.
             $contents = $this->appendToArray($contents, 'commands', "        \\{$class}::class,");
         }
 

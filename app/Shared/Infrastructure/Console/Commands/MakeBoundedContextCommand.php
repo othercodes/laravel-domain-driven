@@ -179,11 +179,12 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
             return true;
         }
 
-        $imported = $this->withImport($contents, $class);
-
-        $updated = $imported === null
-            ? null
-            : $this->appendToList($imported, 'return [', "    {$context}ServiceProvider::class,", '');
+        // Written out in full rather than imported. A context called Billing
+        // wants a BillingServiceProvider, and nothing stops this file already
+        // importing one under that name from somewhere else; two imports
+        // resolving to one short name is a fatal, and in this file of all
+        // files it means nothing boots at all.
+        $updated = $this->appendToList($contents, 'return [', "    \\{$class}::class,", '');
 
         // Appending the short name without its import leaves an unqualified
         // reference, and adding the import without the entry leaves a context

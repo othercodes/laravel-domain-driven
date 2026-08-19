@@ -262,6 +262,40 @@ abstract class ScaffoldCommand extends Command
     }
 
     /**
+     * Whether one of the existing imports already answers to the short name
+     * the given class would introduce.
+     *
+     * @param  list<string>  $imports  the text of each `use` line, without `use` or the semicolon
+     */
+    private function shortNameTaken(array $imports, string $class): bool
+    {
+        $shortName = function (string $import): string {
+            $import = trim($import);
+
+            // `use Ours\Widget as TheirWidget;` occupies TheirWidget, not Widget.
+            if (preg_match('/\s+as\s+(\S+)$/i', $import, $alias) === 1) {
+                return $alias[1];
+            }
+
+            return substr((string) strrchr('\\'.$import, '\\'), 1);
+        };
+
+        foreach ($imports as $import) {
+            // Function and constant imports live in their own symbol tables,
+            // so neither can collide with a class name.
+            if (preg_match('/^(function|const)\s/i', trim($import)) === 1) {
+                continue;
+            }
+
+            if ($shortName($import) === $shortName($class)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Inserts an import in the order Pint's ordered_imports fixer expects.
      *
      * Returns null when the import cannot be placed, so the caller reports a
@@ -274,6 +308,20 @@ abstract class ScaffoldCommand extends Command
         }
 
         preg_match_all('/^use (.+);$/m', $contents, $matches);
+
+        // Two imports resolving to one short name is a compile-time fatal, and
+        // it takes down every file that loads this one. The check above
+        // compares whole names, so on its own it is happy to put
+        // Ours\Widget next to Theirs\Widget.
+        //
+        // The refusal belongs here rather than in each caller. It was written
+        // out once before, as a comment on the one append that had already
+        // caused the fatal, and the other five call sites carried on importing
+        // into files whose contents are not ours to predict. An invariant kept
+        // by whoever remembers it is not kept.
+        if ($this->shortNameTaken($matches[1], $class)) {
+            return null;
+        }
 
         $imports = [...$matches[1], $class];
 

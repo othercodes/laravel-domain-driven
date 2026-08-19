@@ -165,11 +165,17 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         $handlerClass = "App\\{$target['context']}\\{$target['plural']}\\Application\\EventHandlers\\{$name}";
         $eventClass = "App\\{$target['context']}\\{$target['plural']}\\Domain\\Events\\{$event}";
 
-        $updated = $this->withImport($contents, $eventClass);
-        $updated = $updated === null ? null : $this->withImport($updated, $handlerClass);
-        $updated = $updated === null
-            ? null
-            : $this->appendToList($updated, 'array $events = [', "        {$event}::class => {$name}::class,");
+        // Written out in full rather than imported under their short names.
+        // Handler and event names are free text, so either may collide with
+        // something the provider already imports, and two imports resolving to
+        // one short name is a fatal that takes the application down from a
+        // command that just printed green. $commands and $migrations avoid it
+        // the same way.
+        $updated = $this->appendToList(
+            $contents,
+            'array $events = [',
+            "        \\{$eventClass}::class => \\{$handlerClass}::class,"
+        );
 
         if ($updated === null) {
             $this->components->twoColumnDetail($this->relative($provider), '<fg=red>could not be wired</>');

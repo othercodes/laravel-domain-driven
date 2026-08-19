@@ -67,9 +67,25 @@ test('it binds the repository in the context provider', function () {
         ->assertSuccessful();
 
     expect(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')))
-        ->toContain('use App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository;')
-        ->toContain('use App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository;')
-        ->toContain('WidgetRepository::class => EloquentWidgetRepository::class,');
+        ->toContain('\App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,');
+});
+
+test('it binds a repository whose short name the provider already imports', function () {
+    // Same fatal as the event handler, reached through the binding instead:
+    // an aggregate called Widget wants a WidgetRepository, and nothing stops
+    // the provider already importing one from somewhere else.
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    File::put($provider, str_replace(
+        'use ComplexHeart',
+        "use App\Elsewhere\WidgetRepository;\nuse ComplexHeart",
+        File::get($provider)
+    ));
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
+        ->assertSuccessful();
+
+    expect(php_parses($provider))->toBeTrue();
 });
 
 test('it registers the migration path only when a migration is generated', function () {
@@ -302,8 +318,8 @@ test('it does not bind twice when the provider was reformatted', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
 
     File::put($provider, str_replace(
-        '        WidgetRepository::class => EloquentWidgetRepository::class,',
-        '            WidgetRepository::class   => EloquentWidgetRepository::class,',
+        '        \App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,',
+        '            \App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class   => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,',
         File::get($provider)
     ));
 
@@ -312,7 +328,7 @@ test('it does not bind twice when the provider was reformatted', function () {
 
     // EloquentWidgetRepository::class contains WidgetRepository::class, so
     // count the mapping rather than the bare class reference.
-    expect(substr_count(File::get($provider), '=> EloquentWidgetRepository::class'))->toBe(1);
+    expect(substr_count(File::get($provider), '=> \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class'))->toBe(1);
 });
 
 test('it refuses to scaffold into the Shared foundation layer', function () {
@@ -358,7 +374,7 @@ test('it wires a provider whose arrays are declared inline', function () {
 
     expect(File::get($provider))
         ->toContain('FooRepository::class => EloquentFooRepository::class,')
-        ->toContain('WidgetRepository::class => EloquentWidgetRepository::class,');
+        ->toContain('\App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,');
 });
 
 test('it pluralises the aggregate directory and studlies the class', function () {
@@ -611,7 +627,7 @@ test('it refuses to wire into a provider that does not parse', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
         ->assertFailed();
 
-    expect(substr_count(File::get($provider), '=> EloquentWidgetRepository::class'))->toBe(1);
+    expect(substr_count(File::get($provider), '=> \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class'))->toBe(1);
 });
 
 test('it fails when the context provider has nothing to wire', function () {

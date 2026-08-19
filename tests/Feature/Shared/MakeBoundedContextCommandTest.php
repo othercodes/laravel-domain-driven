@@ -41,20 +41,22 @@ test('it scaffolds the context and registers its provider', function () {
 
     expect(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php'))->toBeFile();
 
-    expect(File::get($this->providers))
-        ->toContain('use App\ScaffoldFixture\ScaffoldFixtureServiceProvider;')
-        ->toContain('ScaffoldFixtureServiceProvider::class,');
+    expect(File::get($this->providers))->toContain('\App\ScaffoldFixture\ScaffoldFixtureServiceProvider::class,');
 });
 
-test('it keeps the provider imports alphabetical', function () {
+test('it registers a provider whose short name the list already imports', function () {
+    // The same fatal as in a context provider, in the one file where it means
+    // nothing boots at all. A context called Billing wants a
+    // BillingServiceProvider, and this file may already import one.
+    File::put($this->providers, str_replace(
+        'use App\Shared',
+        "use App\Elsewhere\ScaffoldFixtureServiceProvider;\nuse App\Shared",
+        File::get($this->providers)
+    ));
+
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
 
-    preg_match_all('/^use (.+);$/m', File::get($this->providers), $matches);
-
-    $sorted = $matches[1];
-    sort($sorted);
-
-    expect($matches[1])->toBe($sorted);
+    expect(php_parses($this->providers))->toBeTrue();
 });
 
 test('it creates no layer directories', function () {
@@ -163,7 +165,7 @@ test('a context is not mistaken for one whose name ends with it', function () {
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
 
     expect(File::get($this->providers))
-        ->toContain("\n    ScaffoldFixtureServiceProvider::class,")
+        ->toContain("\n    \App\ScaffoldFixture\ScaffoldFixtureServiceProvider::class,")
         ->and(php_parses($this->providers))->toBeTrue();
 });
 

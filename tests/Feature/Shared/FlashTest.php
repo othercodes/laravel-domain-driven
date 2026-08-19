@@ -86,15 +86,38 @@ test('the component reads the keys the macros write, and styles every one', func
     }
 });
 
-test('the alert dialog is handed text, never markup built from the message', function () {
+test('the alert dialog is handed text, never markup, message and title alike', function () {
     $component = File::get(base_path('resources/templates/tailwindcss/js/Components/Alert.vue'));
 
-    // SweetAlert2 does not sanitise `html`, and a flashed message carries
-    // whatever a controller interpolated into it. Interpolating it into markup
-    // is how a filename or an account name becomes a script tag.
+    // SweetAlert2 parses both `html` and `title` as markup and sanitises
+    // neither. A flashed alert carries whatever a controller interpolated into
+    // it, and a title is as likely to hold a filename as the message is: an
+    // earlier version of this test guarded only the message, and the title
+    // went out unescaped behind it.
     expect($component)
         ->toContain('text: alert.message')
-        ->not->toContain('${alert.message}');
+        ->toContain('titleText: alert.title')
+        ->not->toContain('${alert.message}')
+        ->not->toContain('title: ');
+});
+
+test('the dialog opens inside a modal that is already open', function () {
+    $component = File::get(base_path('resources/templates/tailwindcss/js/Components/Alert.vue'));
+
+    // Modal.vue calls showModal(), which puts the dialog in the top layer and
+    // makes the rest of the document inert. Firing onto the body from there
+    // renders underneath it: invisible, unclickable, and it leaves the scroll
+    // lock behind when the modal closes.
+    expect($component)->toContain("target: document.querySelector('dialog[open]')");
+});
+
+test('an explicit alert is not destroyed by the validation dialog', function () {
+    $component = File::get(base_path('resources/templates/tailwindcss/js/Components/Alert.vue'));
+
+    // Only one SweetAlert2 dialog can be open, so firing a second destroys the
+    // first. A response carrying both an alert and errors would otherwise show
+    // the field names and swallow the sentence somebody wrote.
+    expect($component)->toMatch('/if \(alert\) \{\s*showAlert\(alert\);\s*return;/');
 });
 
 test('the shared props are published under context', function () {

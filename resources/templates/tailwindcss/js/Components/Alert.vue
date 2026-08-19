@@ -12,17 +12,23 @@ const page = usePage();
 
 // The style token is SweetAlert2's own icon vocabulary, which is why the error
 // macro flashes `error` here while its banner counterpart flashes `danger`.
+// Modal.vue opens a native <dialog> with showModal(), which puts it in the top
+// layer and makes everything behind it inert. A dialog mounted on the body then
+// renders underneath it, invisible and unclickable, and leaves its scroll lock
+// behind. So it is fired into whichever dialog is open, if one is.
 const dialog = (options) => Swal.fire({
+    target: document.querySelector('dialog[open]') ?? 'body',
     buttonsStyling: true,
     ...options,
 });
 
-// Passed as `text`, never as `html`. SweetAlert2 does not sanitise `html`, and
-// a flashed message is free to carry whatever a controller interpolated into
-// it, an account name or a filename that came from a form.
+// `titleText` and `text`, never `title` or `html`. Both of the ones not used
+// here are parsed as markup and neither is sanitised, and a flashed alert is
+// free to carry whatever a controller interpolated into it: an account name, or
+// a filename that arrived from a form.
 const showAlert = (alert) => dialog({
     icon: alert.style,
-    title: alert.title || undefined,
+    titleText: alert.title || undefined,
     text: alert.message,
 });
 
@@ -54,15 +60,20 @@ const showErrors = (errors) => {
     }
 
     dialog(entries.length === 1
-        ? { icon: 'error', title: entries[0][0], text: entries[0][1] }
-        : { icon: 'error', title: 'Please check the form', html: listOf(entries) });
+        ? { icon: 'error', titleText: entries[0][0], text: entries[0][1] }
+        : { icon: 'error', titleText: 'Please check the form', html: listOf(entries) });
 };
 
 watchEffect(() => {
     const alert = page.props.context?.flash?.alert;
 
+    // Only one dialog can be open: firing a second destroys the first. A
+    // message somebody wrote by hand outranks one assembled from field names,
+    // and the flash carrying it is spent either way.
     if (alert) {
         showAlert(alert);
+
+        return;
     }
 
     if (Object.keys(page.props.errors ?? {}).length > 0) {

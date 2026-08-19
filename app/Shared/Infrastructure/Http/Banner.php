@@ -19,10 +19,10 @@ namespace App\Shared\Infrastructure\Http;
 final class Banner
 {
     /**
-     * Flashed at `flash.banner`, never as a whole `flash` array: the session
-     * expands the dots into the same place, and it leaves room beside it for
-     * an alert flashed by the same redirect. Writing `flash` entire replaces
-     * whatever was there, so the two would silently take turns.
+     * Flashed through Inertia rather than shared as a prop, so it reaches the
+     * page once and is gone: shared props are written into the history entry
+     * and merged back on a partial reload, and a banner that outlives its
+     * redirect reappears on the Back button.
      *
      * @return array{message: string, style: string}
      */

@@ -28,7 +28,6 @@ class ShareInertiaData
                     'canUpdatePassword' => Features::enabled(Features::updatePasswords()),
                     'canUpdateProfileInformation' => Features::canUpdateProfileInformation(),
                     'hasEmailVerification' => Features::enabled(Features::emailVerification()),
-                    'flash' => $request->session()->get('flash', []),
                     'hasAccountDeletionFeatures' => true,
                     'hasTermsAndPrivacyPolicyFeature' => true,
                     'managesProfilePhotos' => true,

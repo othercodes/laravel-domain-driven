@@ -65,7 +65,7 @@ const showErrors = (errors) => {
 };
 
 watchEffect(() => {
-    const alert = page.props.context?.flash?.alert;
+    const alert = page.flash?.alert;
 
     // Only one dialog can be open: firing a second destroys the first. A
     // message somebody wrote by hand outranks one assembled from field names,

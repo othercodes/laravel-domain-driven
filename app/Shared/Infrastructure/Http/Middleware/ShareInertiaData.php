@@ -20,7 +20,7 @@ class ShareInertiaData
     public function handle($request, $next)
     {
         Inertia::share([
-            'jetstream' => function () use ($request) {
+            'context' => function () use ($request) {
                 $user = $request->user();
 
                 return [

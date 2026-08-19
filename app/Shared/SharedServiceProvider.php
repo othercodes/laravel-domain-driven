@@ -6,6 +6,8 @@ use App\Shared\Infrastructure\Console\Commands\MakeAggregateCommand;
 use App\Shared\Infrastructure\Console\Commands\MakeBoundedContextCommand;
 use App\Shared\Infrastructure\Console\Commands\MakeEventHandlerCommand;
 use App\Shared\Infrastructure\Console\Commands\MakeUseCaseCommand;
+use App\Shared\Infrastructure\Http\Alert;
+use App\Shared\Infrastructure\Http\Banner;
 use ComplexHeart\Domain\Contracts\Events\EventBus;
 use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;
 use ComplexHeart\Infrastructure\Laravel\ServiceBus\IlluminateEventBus;
@@ -61,54 +63,54 @@ class SharedServiceProvider extends BoundedContextServiceProvider
 
     protected function extendRedirectResponses(): void
     {
-        RedirectResponse::macro('withInfoBanner', function ($message) {
+        // Four names apiece, so reaching for one is a matter of autocompleting
+        // `withS` or `withE` and picking. The two error macros flash different
+        // words, `danger` for the banner and `error` for the alert, because
+        // they are read by different things: a CSS palette and SweetAlert2,
+        // whose icons are named success, error, warning and info. The name a
+        // caller types is ours; the token is whatever the reader answers to.
+        //
+        // Both flash through a dotted key so a redirect can carry a banner and
+        // an alert at once: flashing `flash` whole replaces it, and one of the
+        // two would quietly go missing.
+        RedirectResponse::macro('withSuccessBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', [
-                'style' => 'info',
-                'message' => $message,
-            ]);
+            return $this->with('flash.banner', Banner::of('success', $message));
         });
 
-        RedirectResponse::macro('withSuccessBanner', function ($message) {
+        RedirectResponse::macro('withInfoBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', [
-                'style' => 'success',
-                'message' => $message,
-            ]);
+            return $this->with('flash.banner', Banner::of('info', $message));
         });
 
-        RedirectResponse::macro('withWarningBanner', function ($message) {
+        RedirectResponse::macro('withWarningBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', [
-                'style' => 'warning',
-                'message' => $message,
-            ]);
+            return $this->with('flash.banner', Banner::of('warning', $message));
         });
 
-        RedirectResponse::macro('withDangerBanner', function ($message) {
+        RedirectResponse::macro('withErrorBanner', function (string $message) {
             /** @var RedirectResponse $this */
-            return $this->with('flash.banner', [
-                'style' => 'danger',
-                'message' => $message,
-            ]);
+            return $this->with('flash.banner', Banner::of('danger', $message));
         });
 
-        RedirectResponse::macro('withSuccessAlert', function (string $message, string $title = 'Done!') {
+        RedirectResponse::macro('withSuccessAlert', function (string $message, string $title = '') {
             /** @var RedirectResponse $this */
-            return $this->with('flash.alert', [
-                'style' => 'success',
-                'title' => $title,
-                'text' => $message,
-            ]);
+            return $this->with('flash.alert', Alert::of('success', $message, $title));
         });
 
-        RedirectResponse::macro('withErrorAlert', function (string $message, string $title = 'Oops...') {
+        RedirectResponse::macro('withInfoAlert', function (string $message, string $title = '') {
             /** @var RedirectResponse $this */
-            return $this->with('flash.alert', [
-                'style' => 'danger',
-                'title' => $title,
-                'text' => $message,
-            ]);
+            return $this->with('flash.alert', Alert::of('info', $message, $title));
+        });
+
+        RedirectResponse::macro('withWarningAlert', function (string $message, string $title = '') {
+            /** @var RedirectResponse $this */
+            return $this->with('flash.alert', Alert::of('warning', $message, $title));
+        });
+
+        RedirectResponse::macro('withErrorAlert', function (string $message, string $title = '') {
+            /** @var RedirectResponse $this */
+            return $this->with('flash.alert', Alert::of('error', $message, $title));
         });
     }
 }

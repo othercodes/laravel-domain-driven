@@ -116,6 +116,17 @@ test('the dialog opens inside a modal that is already open', function () {
     expect($component)->toContain("{ flush: 'post' }");
 });
 
+test('the alert component is mounted beside the page, not inside a layout', function () {
+    // AppLayout wraps authenticated pages only, and the seven pages under
+    // Auth use none of it. Mounted there, a flashed alert would reach a
+    // logged-in user and silently do nothing on login or password reset,
+    // where the props carrying it are shared just the same.
+    expect(File::get(base_path('resources/templates/tailwindcss/js/app.js')))
+        ->toContain('h(Alert)')
+        ->and(File::get(base_path('resources/templates/tailwindcss/js/Layouts/AppLayout.vue')))
+        ->not->toContain('Alert');
+});
+
 test('an explicit alert is not destroyed by the validation dialog', function () {
     $component = File::get(base_path('resources/templates/tailwindcss/js/Components/Alert.vue'));
 

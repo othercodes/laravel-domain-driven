@@ -16,10 +16,14 @@ watchEffect(async () => {
 // Written out rather than composed from the style name: Tailwind only emits
 // classes it can see as whole strings in the source, so `bg-${colour}-500`
 // would compile to nothing at all.
+//
+// The bar shades are picked to clear 4.5:1 against the white text below, which
+// is what rules out the obvious blue-500 at 3.8:1 and yellow-500 at 1.9:1.
+// Contrast, not the palette's own numbering, is why these four are not a row.
 const palette = {
     success: { bar: 'bg-indigo-500', badge: 'bg-indigo-600', button: 'hover:bg-indigo-600 focus:bg-indigo-600', icon: 'check' },
-    info: { bar: 'bg-blue-500', badge: 'bg-blue-600', button: 'hover:bg-blue-600 focus:bg-blue-600', icon: 'info' },
-    warning: { bar: 'bg-yellow-500', badge: 'bg-yellow-600', button: 'hover:bg-yellow-600 focus:bg-yellow-600', icon: 'alert' },
+    info: { bar: 'bg-blue-600', badge: 'bg-blue-700', button: 'hover:bg-blue-700 focus:bg-blue-700', icon: 'info' },
+    warning: { bar: 'bg-yellow-700', badge: 'bg-yellow-800', button: 'hover:bg-yellow-800 focus:bg-yellow-800', icon: 'alert' },
     danger: { bar: 'bg-red-700', badge: 'bg-red-600', button: 'hover:bg-red-600 focus:bg-red-600', icon: 'alert' },
 };
 

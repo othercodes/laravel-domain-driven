@@ -109,6 +109,11 @@ test('the dialog opens inside a modal that is already open', function () {
     // renders underneath it: invisible, unclickable, and it leaves the scroll
     // lock behind when the modal closes.
     expect($component)->toContain("target: document.querySelector('dialog[open]')");
+
+    // And resolved after the DOM settles. On the default flush the effect runs
+    // while the outgoing page is still mounted, so the query can find a dialog
+    // that is on its way out and mount into it.
+    expect($component)->toContain("{ flush: 'post' }");
 });
 
 test('an explicit alert is not destroyed by the validation dialog', function () {

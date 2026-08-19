@@ -79,7 +79,11 @@ watchEffect(() => {
     if (Object.keys(page.props.errors ?? {}).length > 0) {
         showErrors(page.props.errors);
     }
-});
+// Runs after the DOM settles, not before it. The default flush would fire the
+// dialog while the outgoing page is still mounted, which both measures the
+// wrong document for scrollbar compensation and, since the target above is
+// resolved here, can mount it into a <dialog> that is on its way out.
+}, { flush: 'post' });
 </script>
 
 <template>

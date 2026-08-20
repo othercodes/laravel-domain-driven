@@ -59,6 +59,19 @@ test('queued makes the handler implement ShouldQueue', function () {
         ->and(php_parses($file))->toBeTrue();
 });
 
+test('it refuses a handler named after the queue interface', function () {
+    // queueTheHandler adds ShouldQueue after the stub is rendered, so the
+    // handler came out as `class ShouldQueue implements ShouldQueue` under its
+    // own import: a fatal, reported as created in green.
+    $this->artisan('ldd:make:event-handler', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'ShouldQueue', '--queued' => true,
+    ])
+        ->expectsOutputToContain('Illuminate\Contracts\Queue\ShouldQueue')
+        ->assertFailed();
+
+    expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers'))->not->toBeDirectory();
+});
+
 test('it wires a handler whose short name the provider already imports', function () {
     // Handler and event names are free text, so either can land next to
     // something the provider already imports. Two imports resolving to one

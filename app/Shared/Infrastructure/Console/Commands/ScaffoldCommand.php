@@ -262,8 +262,10 @@ abstract class ScaffoldCommand extends Command
     }
 
     /**
-     * The stub, if any, that imports something answering to the name a
-     * generated class is about to declare.
+     * Refuses, loudly, a generated class whose name is already answered to by
+     * something the file it lands in imports.
+     *
+     * @param  list<string>  $also  imports the command adds after the stub
      *
      * Two things under one short name in one file is the same compile-time
      * fatal whether they are two imports or an import and the class itself,
@@ -283,8 +285,24 @@ abstract class ScaffoldCommand extends Command
      * application, and the alternative is a guard that answers differently
      * depending on the flags, which is a worse thing to reason about.
      */
-    protected function stubImportAnsweringTo(string $name, string $glob): ?string
+    protected function refusesCollidingName(string $name, string $glob, array $also = []): bool
     {
+        // Not every import a generated file ends up with comes from its stub:
+        // --queued adds ShouldQueue to a handler and --factory adds HasFactory
+        // to a model, both after the stub is rendered. A guard reading only
+        // stubs/ would pass a handler called ShouldQueue straight through to
+        // `class ShouldQueue implements ShouldQueue`.
+        foreach ($also as $import) {
+            if ($this->shortNameTaken([$import], $name)) {
+                $this->components->error("[{$name}] answers to the same name as [{$import}], which is imported into what this would generate.");
+                $this->components->bulletList([
+                    'Two things under one short name in one file is a fatal PHP refuses to compile, so pick another name.',
+                ]);
+
+                return true;
+            }
+        }
+
         foreach ($this->files->glob(base_path("stubs/{$glob}.stub")) ?: [] as $path) {
             preg_match_all('/^use (.+);$/m', $this->files->get($path), $matches);
 
@@ -293,12 +311,22 @@ abstract class ScaffoldCommand extends Command
                 fn (string $import): bool => ! str_contains($import, '{{')
             ));
 
-            if ($this->shortNameTaken($imports, $name)) {
-                return basename($path);
+            if (! $this->shortNameTaken($imports, $name)) {
+                continue;
             }
+
+            // Named here rather than at each caller, which had three copies of
+            // it a moment ago. The stub is the file to go and look at, so
+            // naming the glob instead sends somebody to read all of them.
+            $this->components->error("[{$name}] answers to the same name as something ".basename($path).' imports.');
+            $this->components->bulletList([
+                'Two things under one short name in one file is a fatal PHP refuses to compile, so pick another name.',
+            ]);
+
+            return true;
         }
 
-        return null;
+        return false;
     }
 
     /**

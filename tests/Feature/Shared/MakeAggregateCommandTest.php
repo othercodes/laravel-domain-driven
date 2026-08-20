@@ -108,6 +108,17 @@ test('every name the aggregate stubs import is refused as an aggregate name', fu
     expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();
 });
 
+test('it refuses an aggregate named after an import the command adds itself', function () {
+    // Not every import a generated file ends up with comes from its stub.
+    // --factory adds HasFactory to the model afterwards, so a guard reading
+    // only stubs/ waves `class HasFactory` through, under its own import.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'HasFactory', '--factory' => true])
+        ->expectsOutputToContain('Illuminate\Database\Eloquent\Factories\HasFactory')
+        ->assertFailed();
+
+    expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();
+});
+
 test('the refusal names the stub the collision came from', function () {
     // Naming the wrong file is how somebody spends an afternoon editing a stub
     // that was never the problem.

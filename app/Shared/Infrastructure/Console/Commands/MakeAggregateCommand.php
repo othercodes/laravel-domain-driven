@@ -70,12 +70,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         // Checked before anything is written, and against the stubs rather
         // than a list kept here, so an edited stub cannot make it stale.
-        if (($stub = $this->stubImportAnsweringTo($aggregate, 'aggregate.*')) !== null) {
-            $this->components->error("[{$aggregate}] answers to the same name as something {$stub} imports.");
-            $this->components->bulletList([
-                'Two things under one short name in one file is a fatal PHP refuses to compile, so pick another name.',
-            ]);
-
+        if ($this->refusesCollidingName($aggregate, 'aggregate.*', ['Illuminate\Database\Eloquent\Factories\HasFactory'])) {
             return self::FAILURE;
         }
 

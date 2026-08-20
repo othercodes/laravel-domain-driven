@@ -361,17 +361,30 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // The api URI is kept distinct by the prefix group the context's api
         // file declares, which is the convention the rest of the application
         // follows: bootRoutes() applies the middleware group but no prefix.
-        $route = fn (string $name): string => "Route::get('/{$slug}/{id}', [{$this->aggregate}Controller::class, 'show'])->name('{$name}');";
+        // The controller is written out in full, no import, for the reason
+        // wireProvider and the seeder hint give: this file has an import list
+        // of its own, and the one this context ships opens with four
+        // controllers. Promote UserProfile to its own aggregate and the hint
+        // would offer a second UserProfileController import to paste beside
+        // the existing one, which PHP refuses to compile. bootRoutes()
+        // compiles route files on every boot, cached or not, so that takes
+        // down every request and every artisan call.
+        //
+        // It also tells the two controllers apart on sight: web and API share
+        // a short name, which is what the note at the end of the api snippet
+        // used to have to explain.
+        $route = fn (string $name, string $fqcn): string => "Route::get('/{$slug}/{id}', [\\{$fqcn}::class, 'show'])->name('{$name}');";
 
         $controller = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Http\\Controllers\\{$this->aggregate}Controller";
+        $apiController = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Http\\Controllers\\API\\{$this->aggregate}Controller";
 
         $snippets = [
             'web' => [
                 'controller' => $controller,
-                'lines' => [$route("{$slug}.show")],
+                'lines' => [$route("{$slug}.show", $controller)],
             ],
             'api' => [
-                'controller' => "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Http\\Controllers\\API\\{$this->aggregate}Controller",
+                'controller' => $apiController,
                 'lines' => [
                     // Guarded, unlike the web snippet above. bootRoutes()
                     // applies the api middleware group, which in Laravel is
@@ -381,9 +394,8 @@ final class MakeAggregateCommand extends ScaffoldCommand
                     // stub this file was generated from and the context shipped
                     // here guard it.
                     "Route::prefix('api')->middleware('auth:sanctum')->group(function () {",
-                    '    '.$route("api.{$slug}.show"),
+                    '    '.$route("api.{$slug}.show", $apiController),
                     '});',
-                    "// the {$this->aggregate}Controller here is the one under Http\\Controllers\\API",
                 ],
             ],
         ];
@@ -429,12 +441,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
             }
 
             $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
-
-            // With its import. Route files declare no namespace and
-            // bootRoutes() applies none, so the short name below resolves to
-            // the global one: the route registers, appears in route:list, and
-            // 500s on the first request with "Target class does not exist".
-            $this->line("  <fg=gray>use {$snippet['controller']};</>");
 
             foreach ($snippet['lines'] as $line) {
                 $this->line("  <fg=gray>{$line}</>");
@@ -492,6 +498,16 @@ final class MakeAggregateCommand extends ScaffoldCommand
         foreach ($dirs as $dir) {
             if ($dir === $mine) {
                 continue;
+            }
+
+            // Either signal is enough, and neither covers the other. The
+            // name catches what the parser cannot: a migration mid-edit that
+            // does not parse, a table named by a constant, and
+            // Schema::connection('tenant')->create(), none of which
+            // createdTables() can see. Dropping it for the content scan made
+            // this guard catch strictly less than it used to.
+            if (($this->files->glob("{$dir}/*_create_{$this->table}_table.php") ?: []) !== []) {
+                return $this->relative($dir);
             }
 
             foreach ($this->files->glob("{$dir}/*.php") ?: [] as $migration) {

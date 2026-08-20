@@ -149,6 +149,37 @@ test('every table Shared creates is refused, not just the ones its files are nam
     expect(app_path('ScaffoldFixture/Widgets'))->not->toBeDirectory();
 });
 
+test('a migration the parser cannot read is still owned by its name', function () {
+    // Neither signal covers the other. The parser sees a literal
+    // Schema::create and nothing else: not a table named by a constant, not
+    // Schema::connection('tenant')->create(), and not a file mid-edit that
+    // does not parse at all. Trading the filename for the content scan made
+    // this guard catch strictly less than it did before, and the failure it
+    // let through is a silent duplicate that only surfaces as a migrate abort
+    // on a fresh database.
+    $dir = app_path('ScaffoldFixture/Tenants/Infrastructure/Persistence/Migrations');
+
+    File::ensureDirectoryExists($dir);
+    File::put("{$dir}/2025_03_01_000000_create_tenants_table.php", <<<'PHP'
+        <?php
+
+        use Illuminate\Database\Migrations\Migration;
+        use Illuminate\Support\Facades\Schema;
+
+        return new class extends Migration
+        {
+            public function up(): void
+            {
+                Schema::connection('tenant')->create('tenants', fn ($table) => null);
+            }
+        };
+        PHP);
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true, '--table' => 'tenants'])
+        ->expectsOutputToContain('already has a create migration')
+        ->assertFailed();
+});
+
 test('a Schema::create left behind a comment owns nothing', function () {
     // The guard reads the parsed source, not the text. Reading the text is
     // what this codebase refuses everywhere else, and here it would refuse an
@@ -200,7 +231,7 @@ test('it refuses a table Shared already creates a migration for', function () {
     expect(app_path('ScaffoldFixture/Jobs'))->not->toBeDirectory();
 });
 
-test('the snippets it prints carry the import they need', function () {
+test('the snippets it prints name every class in full', function () {
     // Pasted without it, the seeder entry resolves inside Database\Seeders,
     // which composer maps to two directories that do not hold it, so db:seed
     // aborts. The route line resolves to a global controller instead, which
@@ -212,17 +243,20 @@ test('the snippets it prints carry the import they need', function () {
         '--seeder' => true, '--factory' => true, '--web' => true, '--api' => true,
     ]);
 
-    // The api controller too: it shares a short name with the web one and only
-    // its full name tells them apart, which is the whole reason to print it.
+    // Nothing it prints asks for an import. Both targets have an import list
+    // of their own: DatabaseSeeder is the one file every context adds to and
+    // already imports a UserSeeder, and the shipped route file opens with four
+    // controllers. A pasted import under a name either already holds is a
+    // compile-time fatal, and bootRoutes() compiles route files on every boot,
+    // so that one takes down every request and every artisan call.
+    //
+    // Both controllers in full, too: web and API share a short name and only
+    // the full one tells them apart.
     expect(Artisan::output())
-        // Fully qualified, not imported: DatabaseSeeder is one file every
-        // context adds to and it already imports a UserSeeder, so a second
-        // context owning a User would paste a colliding import and take
-        // db:seed down for every seeder there is.
         ->toContain('\\App\\ScaffoldFixture\\Widgets\\Infrastructure\\Persistence\\Seeders\\WidgetSeeder::class,')
-        ->not->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Persistence\\Seeders\\WidgetSeeder;')
-        ->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\WidgetController;')
-        ->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\API\\WidgetController;');
+        ->toContain('[\\App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\WidgetController::class,')
+        ->toContain('[\\App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\API\\WidgetController::class,')
+        ->not->toContain('use App\\ScaffoldFixture\\Widgets');
 });
 
 test('it says when the route file exists but the provider does not declare it', function () {
@@ -798,12 +832,12 @@ test('it hints a distinct route for the api controller', function () {
         // so URI and name go in the same assertion rather than two. The api
         // URI is kept apart by the prefix group, the convention the rest of
         // the application already follows.
-        ->expectsOutputToContain("Route::get('/widgets/{id}', [WidgetController::class, 'show'])->name('widgets.show');")
+        ->expectsOutputToContain("Route::get('/widgets/{id}', [\\App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\WidgetController::class, 'show'])->name('widgets.show');")
         // Guarded. This assertion pinned the guardless form, so every
         // scaffolded aggregate shipped a public read endpoint and the suite
         // called it correct.
         ->expectsOutputToContain("Route::prefix('api')->middleware('auth:sanctum')->group(function () {")
-        ->expectsOutputToContain("Route::get('/widgets/{id}', [WidgetController::class, 'show'])->name('api.widgets.show');")
+        ->expectsOutputToContain("Route::get('/widgets/{id}', [\\App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\API\\WidgetController::class, 'show'])->name('api.widgets.show');")
         ->assertSuccessful();
 });
 

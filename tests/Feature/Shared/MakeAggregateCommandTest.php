@@ -339,7 +339,7 @@ test('it says when the route file exists but the provider does not declare it', 
 
 test('it refuses an aggregate whose derived class name collides', function (string $name, array $flags) {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => $name] + $flags)
-        ->expectsOutputToContain('would put two things under the name')
+        ->expectsOutputToContain('would not compile, so nothing was kept')
         ->assertFailed();
 
     expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();
@@ -363,23 +363,25 @@ test('it refuses an aggregate named after an import the command adds itself', fu
     $exit = $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'HasFactory', '--factory' => true]);
 
     expect($exit)->toBe(1)
-        // No stub is blamed for it: --factory adds this import to the model,
-        // so the stub the sweep happens to reach first never carries it, and
-        // naming one sends the reader to a file that is not the problem, in
-        // the one directory here meant to be edited.
         ->and(Artisan::output())
-        ->toContain('under the name [HasFactory]')
-        ->not->toContain('.stub');
+        // The file that does not compile, not a stub. --factory adds this
+        // import to the model after the stub is rendered, so a stub was never
+        // the thing to go and look at.
+        ->toContain('ScaffoldFixture/HasFactories/Domain/HasFactory.php');
 
     expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();
 });
 
-test('the refusal names the stub the collision came from', function () {
-    // Naming the wrong file is how somebody spends an afternoon editing a stub
-    // that was never the problem.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Model'])
-        ->expectsOutputToContain('aggregate.model.stub')
-        ->assertFailed();
+test('the refusal names the file that does not compile', function () {
+    // Naming the wrong file is how somebody spends an afternoon on something
+    // that was never the problem. It used to name the stub a rendered guess
+    // had reached first; the file itself is the thing to open.
+    $this->withoutMockingConsoleOutput();
+
+    $exit = $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Model']);
+
+    expect($exit)->toBe(1)
+        ->and(Artisan::output())->toContain('ScaffoldFixture/Models/Domain/Model.php');
 });
 
 test('it binds a repository whose short name the provider already imports', function () {

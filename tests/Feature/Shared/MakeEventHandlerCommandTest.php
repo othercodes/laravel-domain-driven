@@ -68,7 +68,7 @@ test('it refuses a handler named after the event it handles', function () {
     $this->artisan('ldd:make:event-handler', [
         'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'WidgetCreated',
     ])
-        ->expectsOutputToContain('would put two things under the name')
+        ->expectsOutputToContain('would not compile, so nothing was kept')
         ->assertFailed();
 
     expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers'))->not->toBeDirectory();
@@ -86,8 +86,8 @@ test('it refuses a handler named after the queue interface', function () {
 
     expect($exit)->toBe(1)
         ->and(Artisan::output())
-        ->toContain('under the name [ShouldQueue]')
-        ->not->toContain('.stub');
+        // The file that does not compile, which is the one to look at.
+        ->toContain('ScaffoldFixture/Widgets/Application/EventHandlers/ShouldQueue.php');
 
     expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers'))->not->toBeDirectory();
 });

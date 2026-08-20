@@ -84,22 +84,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        // Asked of the stubs as this run would render them, before anything
-        // is written. The names that can collide are the ones interpolated
-        // in, so an unrendered stub has nothing useful to compare.
-        //
-        // --factory adds HasFactory to the model after the stub is rendered,
-        // so the stubs alone do not know about it.
-        // seederUses is asked for whether or not --factory was passed, for the
-        // same reason every stub is asked whether or not its flag was: the
-        // guard answering differently depending on the flags is a worse thing
-        // to reason about than a refused name nobody should want.
-        if ($this->refusesCollidingNames('aggregate.*', $this->replacements([
-            '{{ seederUses }}' => $this->seederUses(),
-        ]), ['Illuminate\Database\Eloquent\Factories\HasFactory'])) {
-            return self::FAILURE;
-        }
-
         if ($this->context === self::SHARED_CONTEXT) {
             $this->components->error('[Shared] is the foundation layer, not a bounded context that can own aggregates.');
 
@@ -180,6 +164,15 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // instance between calls in the same process, so a property here would
         // carry one run's console commands into the next.
         $delegated = $this->writeDelegated();
+        // Before anything that edits a file this run did not create. A
+        // provider left bound to a class that does not compile is loaded from
+        // bootstrap/providers.php, so it takes the application and artisan
+        // down: worse than the broken file it was wired to, and not something
+        // deleting that file undoes.
+        if (! $this->compiles()) {
+            return self::FAILURE;
+        }
+
         $wired = $this->wireProvider($delegated['commands']);
 
         $this->newLine();

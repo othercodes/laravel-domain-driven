@@ -134,7 +134,7 @@ test('it refuses a context whose provider name collides with the stub import', f
     // bootstrap/providers.php, so a fatal in it takes the application down,
     // and this command was the one generator of four that never asked.
     $this->artisan('ldd:make:bounded-context', ['name' => 'BoundedContext'])
-        ->expectsOutputToContain('would put two things under the name')
+        ->expectsOutputToContain('would not compile, so nothing was kept')
         ->assertFailed();
 
     expect(app_path('BoundedContext'))->not->toBeDirectory()

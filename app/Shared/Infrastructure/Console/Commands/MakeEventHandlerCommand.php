@@ -58,23 +58,6 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        // Asked of the stubs as this run would render them, before anything
-        // is written. The names that can collide are the ones interpolated
-        // in, so an unrendered stub has nothing useful to compare.
-        //
-        // After the event is resolved, because the handler's only import is
-        // the event: a handler named InvoiceCreated lands under it. --queued
-        // adds ShouldQueue afterwards, which the stub cannot know about.
-        if ($this->refusesCollidingNames('event-handler', [
-            '{{ context }}' => $target['context'],
-            '{{ plural }}' => $target['plural'],
-            '{{ name }}' => $name,
-            '{{ event }}' => $event,
-            '{{ handlerImplements }}' => '',
-        ], ['Illuminate\Contracts\Queue\ShouldQueue'])) {
-            return self::FAILURE;
-        }
-
         $provider = app_path("{$target['context']}/{$target['context']}ServiceProvider.php");
         $contents = $this->files->get($provider);
 
@@ -124,6 +107,15 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
 
         if ($this->option('queued')) {
             $written ? $this->queueTheHandler($handler) : $this->printQueuedHint($handler, $name);
+        }
+
+        // Before anything that edits a file this run did not create. A
+        // provider left bound to a class that does not compile is loaded from
+        // bootstrap/providers.php, so it takes the application and artisan
+        // down: worse than the broken file it was wired to, and not something
+        // deleting that file undoes.
+        if (! $this->compiles()) {
+            return self::FAILURE;
         }
 
         $wired = $this->wireProvider($provider, $contents, $target, $name, $event);

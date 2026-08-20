@@ -40,21 +40,6 @@ final class MakeUseCaseCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        // Asked of the stubs as this run would render them, before anything
-        // is written. The names that can collide are the ones interpolated
-        // in, so an unrendered stub has nothing useful to compare.
-        //
-        // Both use-case stubs import the aggregate and its repository, so a
-        // use case named Invoice lands under App\...\Domain\Invoice.
-        if ($this->refusesCollidingNames('use-case*', [
-            '{{ context }}' => $target['context'],
-            '{{ aggregate }}' => $target['aggregate'],
-            '{{ plural }}' => $target['plural'],
-            '{{ variable }}' => Str::camel($target['aggregate']),
-            '{{ name }}' => $name,
-        ])) {
-            return self::FAILURE;
-        }
         $stub = $this->option('publishes') ? 'use-case.publishes' : 'use-case';
 
         // put() reports whether it wrote, and saying "created" over the top of
@@ -67,6 +52,12 @@ final class MakeUseCaseCommand extends ScaffoldCommand
             '{{ variable }}' => Str::camel($target['aggregate']),
             '{{ name }}' => $name,
         ]));
+
+        // Nothing here edits a file this run did not create, so the check
+        // has nothing to protect and only has to run before the success line.
+        if (! $this->compiles()) {
+            return self::FAILURE;
+        }
 
         $this->newLine();
         $this->components->info("Use case [{$name}] ".($written ? 'created' : 'left as it is')." in [{$target['context']}].");

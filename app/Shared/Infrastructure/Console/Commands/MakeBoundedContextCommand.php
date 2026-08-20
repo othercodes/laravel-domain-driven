@@ -41,20 +41,6 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        // Asked of the stubs as this run would render them, before anything
-        // is written. The names that can collide are the ones interpolated
-        // in, so an unrendered stub has nothing useful to compare.
-        //
-        // The provider stub imports BoundedContextServiceProvider and declares
-        // <Context>ServiceProvider, and this one is loaded from
-        // bootstrap/providers.php: a fatal here takes the application down.
-        if ($this->refusesCollidingNames('bounded-context.provider', [
-            '{{ context }}' => $context,
-            '{{ routes }}' => '',
-        ])) {
-            return self::FAILURE;
-        }
-
         $path = app_path($context);
         $provider = $path."/{$context}ServiceProvider.php";
 
@@ -66,6 +52,15 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
 
         $this->writeProvider($context, $path);
         $this->writeRoutes($context, $path);
+        // Before anything that edits a file this run did not create. A
+        // provider left bound to a class that does not compile is loaded from
+        // bootstrap/providers.php, so it takes the application and artisan
+        // down: worse than the broken file it was wired to, and not something
+        // deleting that file undoes.
+        if (! $this->compiles()) {
+            return self::FAILURE;
+        }
+
         $registered = $this->registerProvider($context);
 
         $this->newLine();

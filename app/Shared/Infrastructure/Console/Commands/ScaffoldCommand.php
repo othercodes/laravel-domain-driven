@@ -7,7 +7,10 @@ namespace App\Shared\Infrastructure\Console\Commands;
 use App\Shared\Infrastructure\Console\Support\SourceFile;
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Str;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * Class ScaffoldCommand
@@ -43,6 +46,24 @@ abstract class ScaffoldCommand extends Command
         'readonly', 'require', 'require_once', 'return', 'self', 'static', 'string', 'switch',
         'throw', 'trait', 'true', 'try', 'unset', 'use', 'var', 'void', 'while', 'xor', 'yield',
     ];
+
+    /**
+     * Every file this run created, in the order it created them.
+     *
+     * @var list<string>
+     */
+    private array $written = [];
+
+    /**
+     * Artisan reuses the command instance between calls in one process, which
+     * this file warns about elsewhere and which caught this list out: a second
+     * run inherited the first one's files and, on failing to compile, deleted
+     * them too. Symfony calls this before every run.
+     */
+    protected function initialize(InputInterface $input, OutputInterface $output): void
+    {
+        $this->written = [];
+    }
 
     public function __construct(protected readonly Filesystem $files)
     {
@@ -155,9 +176,68 @@ abstract class ScaffoldCommand extends Command
         $this->files->ensureDirectoryExists(dirname($path));
         $this->files->put($path, $contents);
 
+        $this->written[] = $path;
+
         $this->components->twoColumnDetail($this->relative($path), '<fg=green>created</>');
 
         return true;
+    }
+
+    /**
+     * Refuses a run whose own output does not compile, and takes it back.
+     *
+     * This replaced a guard that rendered every stub and compared short names
+     * to work out in advance whether the file it was about to write would
+     * collide with its own imports. That guard had cases: six review rounds
+     * each found a name it did not cover, because a prediction is a list of
+     * the ways somebody thought of. php -l is not a list. It answers for every
+     * cause, including the ones nobody thought of, and the answer is already
+     * written in the file.
+     *
+     * Only what this run created is removed, which is safe because put() never
+     * writes over anything: the tree ends as it started.
+     */
+    protected function compiles(): bool
+    {
+        $broken = array_values(array_filter(
+            $this->written,
+            fn (string $path): bool => Process::run(['php', '-l', $path])->failed()
+        ));
+
+        if ($broken === []) {
+            return true;
+        }
+
+        $this->newLine();
+        $this->components->error('This would not compile, so nothing was kept:');
+        $this->components->bulletList(array_map($this->relative(...), $broken));
+        $this->components->warn('A generated class usually collides with something its own file imports. Pick another name.');
+
+        foreach ($this->written as $path) {
+            $this->files->delete($path);
+        }
+
+        // And the directories they were the only reason for. Deepest first,
+        // and only while they are empty, so nothing that was already there
+        // goes with them.
+        $dirs = array_unique(array_map('dirname', $this->written));
+
+        usort($dirs, fn (string $a, string $b): int => substr_count($b, '/') <=> substr_count($a, '/'));
+
+        foreach ($dirs as $dir) {
+            // isDirectory first: walking up from one entry removes the
+            // parents the next entry was going to walk, and asking whether a
+            // directory that is gone is empty throws.
+            while (str_starts_with($dir, app_path())
+                && $this->files->isDirectory($dir)
+                && $this->files->isEmptyDirectory($dir)) {
+                $this->files->deleteDirectory($dir);
+
+                $dir = dirname($dir);
+            }
+        }
+
+        return false;
     }
 
     protected function relative(string $path): string
@@ -259,103 +339,6 @@ abstract class ScaffoldCommand extends Command
         $this->components->twoColumnDetail($this->relative($path), '<fg=green>created</>');
 
         return true;
-    }
-
-    /**
-     * Refuses, loudly, a run that would generate a file holding two things
-     * under one short name.
-     *
-     * PHP rejects that at compile time whether the two are two imports or an
-     * import and the class the file declares, and a generated file reaches it
-     * from either side: an aggregate called Model lands under Eloquent's
-     * import, a handler called InvoiceCreated lands under its own event, and
-     * an aggregate called Collection puts Illuminate's Collection next to the
-     * one in its own domain.
-     *
-     * The stubs are rendered and read, rather than their names being listed
-     * here. stubs/ is the one thing in this repository meant to be edited, so
-     * a list would describe it as it was the day it was written, and an
-     * earlier version of this guard compared the bare argument against
-     * unrendered imports: it caught Model, whose stub declares the aggregate
-     * name as written, and waved through Json and Aggregate, whose stubs
-     * declare a name derived from it.
-     *
-     * Every stub the command can render is asked, including ones a given run
-     * would not reach. Refusing an aggregate called Request whether or not
-     * --web was passed costs a name nobody should want in a Laravel
-     * application, and a guard that answers differently depending on the flags
-     * is a worse thing to reason about.
-     *
-     * @param  array<string, string>  $replacements  the run's stub substitutions
-     * @param  list<string>  $also  imports the command adds after rendering
-     */
-    protected function refusesCollidingNames(string $glob, array $replacements, array $also = []): bool
-    {
-        foreach ($this->files->glob(base_path("stubs/{$glob}.stub")) ?: [] as $path) {
-            $rendered = str_replace(array_keys($replacements), array_values($replacements), $this->files->get($path));
-
-            preg_match_all('/^use (.+);$/m', $rendered, $imports);
-            preg_match_all('/^(?:(?:final|abstract|readonly)\s+)*(?:class|interface|trait|enum)\s+(\w+)/m', $rendered, $declared);
-
-            // Functions and constants have their own symbol tables, so neither
-            // can collide with a class name. Dropped here rather than left to
-            // shortNameTaken, which only skips them on the side it is asked
-            // about: a `use function` line reaching it as the candidate has
-            // its prefix stripped with the namespace, and `money` then reads
-            // as taken by an earlier `use App\...\Money`. The file compiles
-            // and no name the caller could pick would change it.
-            $classes = array_values(array_filter(
-                $imports[1],
-                fn (string $import): bool => preg_match('/^(function|const)\s/i', trim($import)) !== 1
-            ));
-
-            // An import the command adds that the stub already carries is the
-            // same import, not a collision. Without this, a stub edited to
-            // bake in HasFactory would refuse every aggregate name there is,
-            // and advise picking another one.
-            $added = array_diff(array_map('trim', $also), array_map('trim', $classes));
-
-            // A migration declares an anonymous class, and the route stubs
-            // declare nothing at all.
-            $names = [...$classes, ...$added, ...$declared[1]];
-
-            foreach ($names as $index => $name) {
-                $earlier = array_slice($names, 0, $index);
-
-                if (! $this->shortNameTaken($earlier, $name)) {
-                    continue;
-                }
-
-                $other = '';
-
-                foreach ($earlier as $candidate) {
-                    if ($this->shortNameTaken([$candidate], $name)) {
-                        $other = trim($candidate);
-
-                        break;
-                    }
-                }
-
-                // An import this command adds afterwards lands in one file,
-                // not in every stub the glob matched, so naming the stub the
-                // sweep happened to reach first sends the reader to a file
-                // that was never the problem. Name the two things instead.
-                $injected = in_array($name, $added, true) || in_array($other, $added, true);
-                $short = class_basename(trim($name));
-
-                $this->components->error($injected
-                    ? "This run would put two things under the name [{$short}] in one file: [{$other}] and [".trim($name).'].'
-                    : 'Generating ['.basename($path).'] would put two things under the name ['.$short.'].');
-                $this->components->bulletList([
-                    'PHP refuses to compile a file that does, whether they are two imports or an import and the class itself.',
-                    'Pick another name.',
-                ]);
-
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

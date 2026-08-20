@@ -72,7 +72,7 @@ test('it refuses a use case named after the aggregate it acts on', function (str
     $this->artisan('ldd:make:use-case', [
         'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => $name,
     ])
-        ->expectsOutputToContain('would put two things under the name')
+        ->expectsOutputToContain('would not compile, so nothing was kept')
         ->assertFailed();
 
     expect(app_path('ScaffoldFixture/Widgets/Application/'.$name.'.php'))->not->toBeFile();

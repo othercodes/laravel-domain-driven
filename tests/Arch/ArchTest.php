@@ -217,7 +217,15 @@ test('every service provider declares the wiring arrays the stub does', function
     expect($matches[1])->not->toBeEmpty();
 
     foreach ($contexts as $context) {
-        $source = (string) file_get_contents("{$appPath}/{$context}/{$context}ServiceProvider.php");
+        $provider = "{$appPath}/{$context}/{$context}ServiceProvider.php";
+
+        // Asked before reading it. A directory under app/ with no provider is
+        // reachable, a leaked test fixture being the usual way, and reading
+        // one that is not there yields an empty string that then reports every
+        // property as undeclared: the wrong problem, named confidently.
+        expect(is_file($provider))->toBeTrue("app/{$context} has no {$context}ServiceProvider.");
+
+        $source = (string) file_get_contents($provider);
 
         foreach ($matches[1] as $property) {
             expect($source)->toMatch(

@@ -399,6 +399,16 @@ final class MakeAggregateCommand extends ScaffoldCommand
             // from the one under API: they share a short name.
             $routes = SourceFile::at($file);
 
+            // Said before anything else, and whether or not the route is
+            // already there. A declared route in an undeclared file is loaded
+            // by nothing, and that is the state a developer reaches by doing
+            // exactly what the last run asked of them: behind the early return
+            // below, the reminder stopped the moment it was acted on.
+            if ($this->files->exists($file) && ! $this->declaresRouteFile($kind)) {
+                $this->newLine();
+                $this->line("  <fg=yellow>{$this->context}ServiceProvider does not declare {$this->relative($file)} in \$routes, so nothing loads it.</>");
+            }
+
             if ($routes->references($snippet['controller'])) {
                 continue;
             }
@@ -431,11 +441,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
             // is a 404.
             if (! $this->files->exists($file)) {
                 $this->line("  <fg=yellow>That file does not exist yet: create it and declare it in {$this->context}ServiceProvider::\$routes.</>");
-            } elseif (! $this->declaresRouteFile($kind)) {
-                // Skipped when the file exists, which is the state that most
-                // needs saying: created by an earlier run, never declared,
-                // loaded by nothing, and this hint printing routes into it.
-                $this->line("  <fg=yellow>{$this->context}ServiceProvider does not declare that file in \$routes, so nothing loads it.</>");
             }
         }
 
@@ -484,8 +489,15 @@ final class MakeAggregateCommand extends ScaffoldCommand
                 continue;
             }
 
-            if (($this->files->glob("{$dir}/*_create_{$this->table}_table.php") ?: []) !== []) {
-                return $this->relative($dir);
+            foreach ($this->files->glob("{$dir}/*.php") ?: [] as $migration) {
+                // Asked of what the file creates, not of what it is called.
+                // One migration may create several tables and usually does:
+                // create_jobs_table.php creates jobs, job_batches and
+                // failed_jobs, and create_cache_table.php creates cache and
+                // cache_locks. Matching the name saw two of those five.
+                if (preg_match('/Schema::create\(\s*[\'"]'.preg_quote($this->table, '/').'[\'"]/', (string) $this->files->get($migration)) === 1) {
+                    return $this->relative($dir);
+                }
             }
         }
 

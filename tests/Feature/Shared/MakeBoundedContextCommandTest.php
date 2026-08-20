@@ -97,7 +97,11 @@ test('it says nothing once the provider declares them', function () {
 
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true, '--api' => true]);
 
-    expect(Artisan::output())->not->toContain('does not declare');
+    // Anchored on something the run does print, so an empty output cannot
+    // pass this by saying nothing at all.
+    expect(Artisan::output())
+        ->toContain('Bounded context [ScaffoldFixture]')
+        ->not->toContain('does not declare');
 });
 
 test('it refuses a context whose provider name collides with the stub import', function () {

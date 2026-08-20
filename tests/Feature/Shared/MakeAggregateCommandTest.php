@@ -124,6 +124,31 @@ test('for every name the stubs import, the command refuses or writes files that 
  * it as written, and waved these three through: that is the half-fixed shape
  * this branch exists to end.
  */
+test('every table Shared creates is refused, not just the ones its files are named after', function () {
+    // Derived from the same migrations the guard reads, because the guard used
+    // to match filenames: create_jobs_table.php creates jobs, job_batches and
+    // failed_jobs, and create_cache_table.php creates cache and cache_locks,
+    // so matching the name saw two of those five and let the rest through.
+    $tables = collect(File::glob(app_path('Shared/Infrastructure/Persistence/Migrations/*.php')))
+        ->flatMap(function (string $migration): array {
+            preg_match_all("/Schema::create\(\s*'([a-z_]+)'/", File::get($migration), $found);
+
+            return $found[1];
+        })
+        ->unique()
+        ->values();
+
+    expect($tables)->toHaveCount(5);
+
+    foreach ($tables as $table) {
+        $this->artisan('ldd:make:aggregate', [
+            'context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true, '--table' => $table,
+        ])->assertFailed();
+    }
+
+    expect(app_path('ScaffoldFixture/Widgets'))->not->toBeDirectory();
+});
+
 test('it refuses a table Shared already creates a migration for', function () {
     // The guard globbed app/*/*/.../Migrations, where aggregates keep theirs.
     // Shared keeps the framework's own one segment shallower, so cache, jobs,
@@ -145,12 +170,16 @@ test('the snippets it prints carry the import they need', function () {
     $this->withoutMockingConsoleOutput();
 
     $this->artisan('ldd:make:aggregate', [
-        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true, '--factory' => true, '--web' => true,
+        'context' => 'ScaffoldFixture', 'name' => 'Widget',
+        '--seeder' => true, '--factory' => true, '--web' => true, '--api' => true,
     ]);
 
+    // The api controller too: it shares a short name with the web one and only
+    // its full name tells them apart, which is the whole reason to print it.
     expect(Artisan::output())
         ->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Persistence\\Seeders\\WidgetSeeder;')
-        ->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\WidgetController;');
+        ->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\WidgetController;')
+        ->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\API\\WidgetController;');
 });
 
 test('it says when the route file exists but the provider does not declare it', function () {
@@ -163,7 +192,17 @@ test('it says when the route file exists but the provider does not declare it', 
     File::put($file, "<?php\n");
 
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true])
-        ->expectsOutputToContain('does not declare that file in $routes')
+        ->expectsOutputToContain('does not declare')
+        ->assertSuccessful();
+
+    // And it goes on saying so once the route has been pasted in. Behind the
+    // early return that skips the snippet, the reminder stopped the moment it
+    // was acted on, which is the one state where the 404 is already waiting.
+    File::append($file, "\nuse App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\WidgetController;\n"
+        ."Route::get('/widgets/{id}', [WidgetController::class, 'show'])->name('widgets.show');\n");
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true])
+        ->expectsOutputToContain('does not declare')
         ->assertSuccessful();
 });
 

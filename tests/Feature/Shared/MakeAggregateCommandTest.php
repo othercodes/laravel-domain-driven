@@ -70,6 +70,52 @@ test('it binds the repository in the context provider', function () {
         ->toContain('\App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,');
 });
 
+/*
+ * Two things answering to one short name in one file is the same fatal whether
+ * they are two imports or an import and the class itself, and the second is
+ * the easier one to walk into: `ldd:make:aggregate Catalog Model` wrote
+ * `class Model extends Model` under Eloquent's import. Model, Request,
+ * Response, Event and Collection are all ordinary names for an aggregate.
+ *
+ * Derived from the stubs, exactly as the guard is, so this fails the moment
+ * the guard stops reading them. A list written out here would agree with a
+ * list written out in the command and both would drift from stubs/, which is
+ * the one thing in this repository that is meant to be edited.
+ */
+test('every name the aggregate stubs import is refused as an aggregate name', function () {
+    $imported = collect(File::glob(base_path('stubs/aggregate.*.stub')))
+        ->flatMap(function (string $stub): array {
+            preg_match_all('/^use (.+);$/m', File::get($stub), $matches);
+
+            return $matches[1];
+        })
+        // These resolve to the generated classes themselves, not to anything
+        // an aggregate name could collide with.
+        ->reject(fn (string $import): bool => str_contains($import, '{{'))
+        ->map(fn (string $import): string => class_basename($import))
+        ->unique()
+        ->values();
+
+    expect($imported)->not->toBeEmpty();
+
+    foreach ($imported as $name) {
+        $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => $name])
+            ->assertFailed();
+    }
+
+    // Refused before anything is written, so the context still holds only what
+    // ldd:make:bounded-context put there.
+    expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();
+});
+
+test('the refusal names the stub the collision came from', function () {
+    // Naming the wrong file is how somebody spends an afternoon editing a stub
+    // that was never the problem.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Model'])
+        ->expectsOutputToContain('aggregate.model.stub')
+        ->assertFailed();
+});
+
 test('it binds a repository whose short name the provider already imports', function () {
     // Same fatal as the event handler, reached through the binding instead:
     // an aggregate called Widget wants a WidgetRepository, and nothing stops

@@ -262,12 +262,52 @@ abstract class ScaffoldCommand extends Command
     }
 
     /**
+     * The stub, if any, that imports something answering to the name a
+     * generated class is about to declare.
+     *
+     * Two things under one short name in one file is the same compile-time
+     * fatal whether they are two imports or an import and the class itself,
+     * and the second is the easier one to walk into: `ldd:make:aggregate
+     * Catalog Model` writes `class Model extends Model` under Eloquent's
+     * import, and Model, Request, Response, Event and Collection are all
+     * ordinary things to call an aggregate.
+     *
+     * Read from the stubs rather than listed here. stubs/ is meant to be
+     * edited, so a list written out in this file would describe the stubs as
+     * they were the day it was written. Imports holding a placeholder are
+     * skipped: those resolve to the generated classes themselves.
+     *
+     * Every stub the command can render is asked, including the ones a given
+     * run would not reach: refusing an aggregate called Request whether or not
+     * --web was passed costs a name nobody should want in a Laravel
+     * application, and the alternative is a guard that answers differently
+     * depending on the flags, which is a worse thing to reason about.
+     */
+    protected function stubImportAnsweringTo(string $name, string $glob): ?string
+    {
+        foreach ($this->files->glob(base_path("stubs/{$glob}.stub")) ?: [] as $path) {
+            preg_match_all('/^use (.+);$/m', $this->files->get($path), $matches);
+
+            $imports = array_values(array_filter(
+                $matches[1],
+                fn (string $import): bool => ! str_contains($import, '{{')
+            ));
+
+            if ($this->shortNameTaken($imports, $name)) {
+                return basename($path);
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Whether one of the existing imports already answers to the short name
      * the given class would introduce.
      *
      * @param  list<string>  $imports  the text of each `use` line, without `use` or the semicolon
      */
-    private function shortNameTaken(array $imports, string $class): bool
+    protected function shortNameTaken(array $imports, string $class): bool
     {
         $shortName = function (string $import): string {
             $import = trim($import);

@@ -110,7 +110,7 @@ final class SourceFile
      * is not a fact about the class, it is the absence of the class.
      */
     /**
-     * The tables a migration creates, as named in its Schema::create calls.
+     * The tables a migration creates in up(), as named in its Schema::create calls.
      *
      * Asked of the parsed source rather than of the text, for the reason this
      * file gives everywhere else: a Schema::create parked behind // is not a
@@ -122,8 +122,23 @@ final class SourceFile
      */
     public function createdTables(): array
     {
-        $calls = $this->finder->find(
+        // Only what up() creates. A reversible drop migration restores its
+        // table in down(), and counting that answered with a table the file
+        // exists to remove: the guard then refused an aggregate over a table
+        // no migration creates, and wrote nothing at all, naming a drop
+        // migration as the owner.
+        $up = $this->finder->findFirst(
             $this->ast,
+            fn (Node $node): bool => $node instanceof Node\Stmt\ClassMethod
+                && $node->name->toString() === 'up'
+        );
+
+        if (! $up instanceof Node\Stmt\ClassMethod) {
+            return [];
+        }
+
+        $calls = $this->finder->find(
+            $up->stmts ?? [],
             fn (Node $node): bool => $node instanceof Node\Expr\StaticCall
                 && $node->class instanceof Node\Name
                 && $node->class->toString() === 'Illuminate\Support\Facades\Schema'

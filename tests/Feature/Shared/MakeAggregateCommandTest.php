@@ -180,6 +180,39 @@ test('a migration the parser cannot read is still owned by its name', function (
         ->assertFailed();
 });
 
+test('a migration that drops a table does not own the one its down restores', function () {
+    // A reversible drop restores its table in down(), and counting that made
+    // the guard refuse an aggregate over a table nothing creates, name a drop
+    // migration as the owner, and offer --table as the way out. Retiring an
+    // aggregate and keeping the cleanup migration is ordinary, and the
+    // create migration is gone by then, so the filename signal is quiet too.
+    $dir = app_path('ScaffoldFixture/Ledgers/Infrastructure/Persistence/Migrations');
+
+    File::ensureDirectoryExists($dir);
+    File::put("{$dir}/2026_01_10_000000_drop_entries_table.php", <<<'PHP'
+        <?php
+
+        use Illuminate\Database\Migrations\Migration;
+        use Illuminate\Support\Facades\Schema;
+
+        return new class extends Migration
+        {
+            public function up(): void
+            {
+                Schema::dropIfExists('entries');
+            }
+
+            public function down(): void
+            {
+                Schema::create('entries', fn ($table) => null);
+            }
+        };
+        PHP);
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Entry', '--migration' => true])
+        ->assertSuccessful();
+});
+
 test('a Schema::create left behind a comment owns nothing', function () {
     // The guard reads the parsed source, not the text. Reading the text is
     // what this codebase refuses everywhere else, and here it would refuse an

@@ -68,12 +68,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        // Checked before anything is written, and against the stubs rather
-        // than a list kept here, so an edited stub cannot make it stale.
-        if ($this->refusesCollidingName($aggregate, 'aggregate.*', ['Illuminate\Database\Eloquent\Factories\HasFactory'])) {
-            return self::FAILURE;
-        }
-
         $this->context = $context;
         $this->aggregate = $aggregate;
         $this->plural = Str::plural($this->aggregate);
@@ -87,6 +81,16 @@ final class MakeAggregateCommand extends ScaffoldCommand
         if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $this->table) !== 1) {
             $this->components->error("The table name must be a valid identifier, [{$this->table}] is not.");
 
+            return self::FAILURE;
+        }
+
+        // Asked of the stubs as this run would render them, before anything
+        // is written. The names that can collide are the ones interpolated
+        // in, so an unrendered stub has nothing useful to compare.
+        //
+        // --factory adds HasFactory to the model after the stub is rendered,
+        // so the stubs alone do not know about it.
+        if ($this->refusesCollidingNames('aggregate.*', $this->replacements(), ['Illuminate\Database\Eloquent\Factories\HasFactory'])) {
             return self::FAILURE;
         }
 

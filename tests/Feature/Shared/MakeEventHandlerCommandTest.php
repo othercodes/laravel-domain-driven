@@ -59,6 +59,20 @@ test('queued makes the handler implement ShouldQueue', function () {
         ->and(php_parses($file))->toBeTrue();
 });
 
+test('it refuses a handler named after the event it handles', function () {
+    // The handler stub's only import is the event, and the event defaults to
+    // <Aggregate>Created, so this is the name a user naturally reaches for.
+    // The refusal has to be asked after the event is resolved: before that,
+    // there is nothing to compare the name against.
+    $this->artisan('ldd:make:event-handler', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'WidgetCreated',
+    ])
+        ->expectsOutputToContain('would put two things under the name')
+        ->assertFailed();
+
+    expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers'))->not->toBeDirectory();
+});
+
 test('it refuses a handler named after the queue interface', function () {
     // queueTheHandler adds ShouldQueue after the stub is rendered, so the
     // handler came out as `class ShouldQueue implements ShouldQueue` under its
@@ -66,7 +80,7 @@ test('it refuses a handler named after the queue interface', function () {
     $this->artisan('ldd:make:event-handler', [
         'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'ShouldQueue', '--queued' => true,
     ])
-        ->expectsOutputToContain('Illuminate\Contracts\Queue\ShouldQueue')
+        ->expectsOutputToContain('would put two things under the name')
         ->assertFailed();
 
     expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers'))->not->toBeDirectory();

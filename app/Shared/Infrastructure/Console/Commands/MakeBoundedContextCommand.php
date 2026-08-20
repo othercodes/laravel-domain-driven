@@ -41,6 +41,20 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
+        // Asked of the stubs as this run would render them, before anything
+        // is written. The names that can collide are the ones interpolated
+        // in, so an unrendered stub has nothing useful to compare.
+        //
+        // The provider stub imports BoundedContextServiceProvider and declares
+        // <Context>ServiceProvider, and this one is loaded from
+        // bootstrap/providers.php: a fatal here takes the application down.
+        if ($this->refusesCollidingNames('bounded-context.provider', [
+            '{{ context }}' => $context,
+            '{{ routes }}' => '',
+        ])) {
+            return self::FAILURE;
+        }
+
         $path = app_path($context);
         $provider = $path."/{$context}ServiceProvider.php";
 

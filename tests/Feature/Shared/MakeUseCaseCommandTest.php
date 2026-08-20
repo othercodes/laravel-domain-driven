@@ -31,6 +31,19 @@ afterEach(function () {
     }
 });
 
+test('it refuses a use case named after the aggregate it acts on', function (string $name) {
+    // Both use-case stubs import the aggregate and its repository, so a use
+    // case under either name lands on its own import: two things under one
+    // short name, which PHP refuses to compile.
+    $this->artisan('ldd:make:use-case', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => $name,
+    ])
+        ->expectsOutputToContain('would put two things under the name')
+        ->assertFailed();
+
+    expect(app_path('ScaffoldFixture/Widgets/Application/'.$name.'.php'))->not->toBeFile();
+})->with(['the aggregate' => 'Widget', 'its repository' => 'WidgetRepository']);
+
 test('it creates the use case in the aggregate application layer', function () {
     $this->artisan('ldd:make:use-case', [
         'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',

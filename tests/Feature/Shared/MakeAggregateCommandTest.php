@@ -72,25 +72,24 @@ test('it binds the repository in the context provider', function () {
 
 /*
  * Two things answering to one short name in one file is the same fatal whether
- * they are two imports or an import and the class itself, and the second is
- * the easier one to walk into: `ldd:make:aggregate Catalog Model` wrote
- * `class Model extends Model` under Eloquent's import. Model, Request,
- * Response, Event and Collection are all ordinary names for an aggregate.
+ * they are two imports or an import and the class the file declares, and a
+ * generated file reaches it from either side.
  *
- * Derived from the stubs, exactly as the guard is, so this fails the moment
- * the guard stops reading them. A list written out here would agree with a
- * list written out in the command and both would drift from stubs/, which is
- * the one thing in this repository that is meant to be edited.
+ * What is asserted is the invariant itself, from outside: either the command
+ * refuses, or everything it wrote compiles. An earlier version of this test
+ * asserted that every name a stub imports is refused, which is a different and
+ * wrong claim: an aggregate called Exception generates ExceptionException
+ * under `use Exception`, and Schema appears only in the migration stub, which
+ * declares an anonymous class. Both are fine, and a guard that refused them
+ * would be answering a question nobody asked.
  */
-test('every name the aggregate stubs import is refused as an aggregate name', function () {
+test('for every name the stubs import, the command refuses or writes files that compile', function () {
     $imported = collect(File::glob(base_path('stubs/aggregate.*.stub')))
         ->flatMap(function (string $stub): array {
             preg_match_all('/^use (.+);$/m', File::get($stub), $matches);
 
             return $matches[1];
         })
-        // These resolve to the generated classes themselves, not to anything
-        // an aggregate name could collide with.
         ->reject(fn (string $import): bool => str_contains($import, '{{'))
         ->map(fn (string $import): string => class_basename($import))
         ->unique()
@@ -99,21 +98,48 @@ test('every name the aggregate stubs import is refused as an aggregate name', fu
     expect($imported)->not->toBeEmpty();
 
     foreach ($imported as $name) {
-        $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => $name])
-            ->assertFailed();
-    }
+        $this->artisan('ldd:make:aggregate', [
+            'context' => 'ScaffoldFixture', 'name' => $name, '--all' => true,
+        ])->run();
 
-    // Refused before anything is written, so the context still holds only what
-    // ldd:make:bounded-context put there.
-    expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();
+        foreach (File::allFiles(app_path('ScaffoldFixture')) as $file) {
+            expect(php_parses($file->getPathname()))->toBeTrue(
+                "ldd:make:aggregate ScaffoldFixture {$name} --all wrote {$file->getFilename()}, which does not compile."
+            );
+        }
+
+        File::deleteDirectory(app_path('ScaffoldFixture/'.Str::plural($name)));
+    }
 });
+
+/*
+ * Eleven of the thirteen aggregate stubs declare a name derived from the
+ * aggregate rather than the aggregate itself, and the collision follows the
+ * derived name. Comparing the argument alone caught Model, whose stub declares
+ * it as written, and waved these three through: that is the half-fixed shape
+ * this branch exists to end.
+ */
+test('it refuses an aggregate whose derived class name collides', function (string $name, array $flags) {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => $name] + $flags)
+        ->expectsOutputToContain('would put two things under the name')
+        ->assertFailed();
+
+    expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();
+})->with([
+    // {{ aggregate }}Resource lands on Illuminate's JsonResource.
+    'Json' => ['Json', ['--api' => true]],
+    // {{ aggregate }}Factory lands on the shared AggregateFactory.
+    'Aggregate' => ['Aggregate', ['--factory' => true]],
+    // {{ aggregate }}Controller lands on the shared InertiaController.
+    'Inertia' => ['Inertia', ['--web' => true]],
+]);
 
 test('it refuses an aggregate named after an import the command adds itself', function () {
     // Not every import a generated file ends up with comes from its stub.
     // --factory adds HasFactory to the model afterwards, so a guard reading
     // only stubs/ waves `class HasFactory` through, under its own import.
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'HasFactory', '--factory' => true])
-        ->expectsOutputToContain('Illuminate\Database\Eloquent\Factories\HasFactory')
+        ->expectsOutputToContain('would put two things under the name')
         ->assertFailed();
 
     expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();

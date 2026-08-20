@@ -262,68 +262,60 @@ abstract class ScaffoldCommand extends Command
     }
 
     /**
-     * Refuses, loudly, a generated class whose name is already answered to by
-     * something the file it lands in imports.
+     * Refuses, loudly, a run that would generate a file holding two things
+     * under one short name.
      *
-     * @param  list<string>  $also  imports the command adds after the stub
+     * PHP rejects that at compile time whether the two are two imports or an
+     * import and the class the file declares, and a generated file reaches it
+     * from either side: an aggregate called Model lands under Eloquent's
+     * import, a handler called InvoiceCreated lands under its own event, and
+     * an aggregate called Collection puts Illuminate's Collection next to the
+     * one in its own domain.
      *
-     * Two things under one short name in one file is the same compile-time
-     * fatal whether they are two imports or an import and the class itself,
-     * and the second is the easier one to walk into: `ldd:make:aggregate
-     * Catalog Model` writes `class Model extends Model` under Eloquent's
-     * import, and Model, Request, Response, Event and Collection are all
-     * ordinary things to call an aggregate.
+     * The stubs are rendered and read, rather than their names being listed
+     * here. stubs/ is the one thing in this repository meant to be edited, so
+     * a list would describe it as it was the day it was written, and an
+     * earlier version of this guard compared the bare argument against
+     * unrendered imports: it caught Model, whose stub declares the aggregate
+     * name as written, and waved through Json and Aggregate, whose stubs
+     * declare a name derived from it.
      *
-     * Read from the stubs rather than listed here. stubs/ is meant to be
-     * edited, so a list written out in this file would describe the stubs as
-     * they were the day it was written. Imports holding a placeholder are
-     * skipped: those resolve to the generated classes themselves.
-     *
-     * Every stub the command can render is asked, including the ones a given
-     * run would not reach: refusing an aggregate called Request whether or not
+     * Every stub the command can render is asked, including ones a given run
+     * would not reach. Refusing an aggregate called Request whether or not
      * --web was passed costs a name nobody should want in a Laravel
-     * application, and the alternative is a guard that answers differently
-     * depending on the flags, which is a worse thing to reason about.
+     * application, and a guard that answers differently depending on the flags
+     * is a worse thing to reason about.
+     *
+     * @param  array<string, string>  $replacements  the run's stub substitutions
+     * @param  list<string>  $also  imports the command adds after rendering
      */
-    protected function refusesCollidingName(string $name, string $glob, array $also = []): bool
+    protected function refusesCollidingNames(string $glob, array $replacements, array $also = []): bool
     {
-        // Not every import a generated file ends up with comes from its stub:
-        // --queued adds ShouldQueue to a handler and --factory adds HasFactory
-        // to a model, both after the stub is rendered. A guard reading only
-        // stubs/ would pass a handler called ShouldQueue straight through to
-        // `class ShouldQueue implements ShouldQueue`.
-        foreach ($also as $import) {
-            if ($this->shortNameTaken([$import], $name)) {
-                $this->components->error("[{$name}] answers to the same name as [{$import}], which is imported into what this would generate.");
+        foreach ($this->files->glob(base_path("stubs/{$glob}.stub")) ?: [] as $path) {
+            $rendered = str_replace(array_keys($replacements), array_values($replacements), $this->files->get($path));
+
+            preg_match_all('/^use (.+);$/m', $rendered, $imports);
+            preg_match_all('/^(?:(?:final|abstract|readonly)\s+)*(?:class|interface|trait|enum)\s+(\w+)/m', $rendered, $declared);
+
+            // A migration declares an anonymous class, and the route stubs
+            // declare nothing at all.
+            $names = [...$imports[1], ...$also, ...$declared[1]];
+
+            foreach ($names as $index => $name) {
+                $earlier = array_slice($names, 0, $index);
+
+                if (! $this->shortNameTaken($earlier, $name)) {
+                    continue;
+                }
+
+                $this->components->error('Generating ['.basename($path).'] would put two things under the name ['.class_basename(trim($name)).'].');
                 $this->components->bulletList([
-                    'Two things under one short name in one file is a fatal PHP refuses to compile, so pick another name.',
+                    'PHP refuses to compile a file that does, whether they are two imports or an import and the class itself.',
+                    'Pick another name.',
                 ]);
 
                 return true;
             }
-        }
-
-        foreach ($this->files->glob(base_path("stubs/{$glob}.stub")) ?: [] as $path) {
-            preg_match_all('/^use (.+);$/m', $this->files->get($path), $matches);
-
-            $imports = array_values(array_filter(
-                $matches[1],
-                fn (string $import): bool => ! str_contains($import, '{{')
-            ));
-
-            if (! $this->shortNameTaken($imports, $name)) {
-                continue;
-            }
-
-            // Named here rather than at each caller, which had three copies of
-            // it a moment ago. The stub is the file to go and look at, so
-            // naming the glob instead sends somebody to read all of them.
-            $this->components->error("[{$name}] answers to the same name as something ".basename($path).' imports.');
-            $this->components->bulletList([
-                'Two things under one short name in one file is a fatal PHP refuses to compile, so pick another name.',
-            ]);
-
-            return true;
         }
 
         return false;

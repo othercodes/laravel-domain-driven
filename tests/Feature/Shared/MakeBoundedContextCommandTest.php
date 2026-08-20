@@ -14,7 +14,10 @@ beforeEach(function () {
     $this->providers = base_path('bootstrap/providers.php');
     $this->providersBackup = File::get($this->providers);
 
-    foreach (['ScaffoldFixture', 'NestedScaffoldFixture'] as $fixture) {
+    // BoundedContext is only ever created if the collision guard stops
+    // working, and a leaked context joins $contexts in the arch suite, so it is
+    // guarded and torn down like the two this file means to create.
+    foreach (['ScaffoldFixture', 'NestedScaffoldFixture', 'BoundedContext'] as $fixture) {
         expect(app_path($fixture))->not->toBeDirectory(
             "app/{$fixture} already exists; refusing to run so the teardown cannot delete it."
         );
@@ -32,6 +35,7 @@ afterEach(function () {
     if ($this->createdFixture ?? false) {
         File::deleteDirectory(app_path('ScaffoldFixture'));
         File::deleteDirectory(app_path('NestedScaffoldFixture'));
+        File::deleteDirectory(app_path('BoundedContext'));
     }
 });
 
@@ -42,6 +46,19 @@ test('it scaffolds the context and registers its provider', function () {
     expect(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php'))->toBeFile();
 
     expect(File::get($this->providers))->toContain('\App\ScaffoldFixture\ScaffoldFixtureServiceProvider::class,');
+});
+
+test('it refuses a context whose provider name collides with the stub import', function () {
+    // The provider stub imports BoundedContextServiceProvider and declares
+    // <Context>ServiceProvider. This provider is loaded from
+    // bootstrap/providers.php, so a fatal in it takes the application down,
+    // and this command was the one generator of four that never asked.
+    $this->artisan('ldd:make:bounded-context', ['name' => 'BoundedContext'])
+        ->expectsOutputToContain('would put two things under the name')
+        ->assertFailed();
+
+    expect(app_path('BoundedContext'))->not->toBeDirectory()
+        ->and(File::get($this->providers))->not->toContain('BoundedContext');
 });
 
 test('it registers a provider whose short name the list already imports', function () {

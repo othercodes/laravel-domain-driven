@@ -40,12 +40,6 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        // Checked before anything is written, and against the stubs rather
-        // than a list kept here, so an edited stub cannot make it stale.
-        if ($this->refusesCollidingName($name, 'event-handler', ['Illuminate\Contracts\Queue\ShouldQueue'])) {
-            return self::FAILURE;
-        }
-
         $event = $this->identifier(
             (string) ($this->option('event') ?: "{$target['aggregate']}Created"),
             'event'
@@ -61,6 +55,23 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
                 "Add it with: php artisan ldd:make:aggregate {$target['context']} {$target['aggregate']} --events",
             ]);
 
+            return self::FAILURE;
+        }
+
+        // Asked of the stubs as this run would render them, before anything
+        // is written. The names that can collide are the ones interpolated
+        // in, so an unrendered stub has nothing useful to compare.
+        //
+        // After the event is resolved, because the handler's only import is
+        // the event: a handler named InvoiceCreated lands under it. --queued
+        // adds ShouldQueue afterwards, which the stub cannot know about.
+        if ($this->refusesCollidingNames('event-handler', [
+            '{{ context }}' => $target['context'],
+            '{{ plural }}' => $target['plural'],
+            '{{ name }}' => $name,
+            '{{ event }}' => $event,
+            '{{ handlerImplements }}' => '',
+        ], ['Illuminate\Contracts\Queue\ShouldQueue'])) {
             return self::FAILURE;
         }
 

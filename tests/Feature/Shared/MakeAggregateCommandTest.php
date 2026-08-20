@@ -86,7 +86,11 @@ test('it binds the repository in the context provider', function () {
 test('for every name the stubs import, the command refuses or writes files that compile', function () {
     $imported = collect(File::glob(base_path('stubs/aggregate.*.stub')))
         ->flatMap(function (string $stub): array {
-            preg_match_all('/^use (.+);$/m', File::get($stub), $matches);
+            // Not anchored at column zero alone: aggregate.seeder.stub opens
+            // its import line with a placeholder, and that is exactly the one
+            // name this sweep could not reach. Still not matching an indented
+            // `use`, which inside a class body is a trait, not an import.
+            preg_match_all('/(?:^|\}\})use ([^;\n]+);$/m', File::get($stub), $matches);
 
             return $matches[1];
         })

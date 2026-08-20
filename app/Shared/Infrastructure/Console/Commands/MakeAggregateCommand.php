@@ -90,7 +90,13 @@ final class MakeAggregateCommand extends ScaffoldCommand
         //
         // --factory adds HasFactory to the model after the stub is rendered,
         // so the stubs alone do not know about it.
-        if ($this->refusesCollidingNames('aggregate.*', $this->replacements(), ['Illuminate\Database\Eloquent\Factories\HasFactory'])) {
+        // seederUses is asked for whether or not --factory was passed, for the
+        // same reason every stub is asked whether or not its flag was: the
+        // guard answering differently depending on the flags is a worse thing
+        // to reason about than a refused name nobody should want.
+        if ($this->refusesCollidingNames('aggregate.*', $this->replacements([
+            '{{ seederUses }}' => $this->seederUses(),
+        ]), ['Illuminate\Database\Eloquent\Factories\HasFactory'])) {
             return self::FAILURE;
         }
 
@@ -521,9 +527,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
             $seeder = $this->stub('aggregate.seeder', $this->replacements([
                 // App sorts before Illuminate, so this goes in ahead of the
                 // Seeder import and Pint's ordered_imports has nothing to fix.
-                '{{ seederUses }}' => $this->wants('factory')
-                    ? "use App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate};\n"
-                    : '',
+                '{{ seederUses }}' => $this->wants('factory') ? $this->seederUses() : '',
                 '{{ seederBody }}' => $this->wants('factory')
                     ? "        {$this->aggregate}::factory()->count(10)->create();\n"
                     : "        // Nothing here yet. Generate a factory with --factory, then:\n        // {$this->aggregate}::factory()->count(10)->create();\n",
@@ -725,6 +729,20 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * @param  array<string, string>  $extra
      * @return array<string, string>
      */
+    /**
+     * The import --factory adds to the seeder, ahead of Illuminate's Seeder.
+     *
+     * Written once because the collision guard has to render the stub exactly
+     * as this run will: with the placeholder left in, `{{ seederUses }}use
+     * Illuminate\Database\Seeder;` is one line whose `use` is not at column
+     * zero, and the guard never saw it. `ldd:make:aggregate Billing Seeder
+     * --all` wrote both Seeder imports and exited 0.
+     */
+    private function seederUses(): string
+    {
+        return "use App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate};\n";
+    }
+
     private function replacements(array $extra = []): array
     {
         return array_merge([

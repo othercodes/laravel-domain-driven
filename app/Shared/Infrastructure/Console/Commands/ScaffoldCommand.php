@@ -314,7 +314,26 @@ abstract class ScaffoldCommand extends Command
                     continue;
                 }
 
-                $this->components->error('Generating ['.basename($path).'] would put two things under the name ['.class_basename(trim($name)).'].');
+                $other = '';
+
+                foreach ($earlier as $candidate) {
+                    if ($this->shortNameTaken([$candidate], $name)) {
+                        $other = trim($candidate);
+
+                        break;
+                    }
+                }
+
+                // An import this command adds afterwards lands in one file,
+                // not in every stub the glob matched, so naming the stub the
+                // sweep happened to reach first sends the reader to a file
+                // that was never the problem. Name the two things instead.
+                $injected = in_array($name, $added, true) || in_array($other, $added, true);
+                $short = class_basename(trim($name));
+
+                $this->components->error($injected
+                    ? "This run would put two things under the name [{$short}] in one file: [{$other}] and [".trim($name).'].'
+                    : 'Generating ['.basename($path).'] would put two things under the name ['.$short.'].');
                 $this->components->bulletList([
                     'PHP refuses to compile a file that does, whether they are two imports or an import and the class itself.',
                     'Pick another name.',

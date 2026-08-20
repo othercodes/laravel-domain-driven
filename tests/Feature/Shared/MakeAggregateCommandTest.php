@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 
 /*
@@ -142,9 +143,20 @@ test('it refuses an aggregate named after an import the command adds itself', fu
     // Not every import a generated file ends up with comes from its stub.
     // --factory adds HasFactory to the model afterwards, so a guard reading
     // only stubs/ waves `class HasFactory` through, under its own import.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'HasFactory', '--factory' => true])
-        ->expectsOutputToContain('would put two things under the name')
-        ->assertFailed();
+    // Read back rather than asserted through doesntExpectOutputToContain,
+    // which matches per write call and never sees what the components print.
+    $this->withoutMockingConsoleOutput();
+
+    $exit = $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'HasFactory', '--factory' => true]);
+
+    expect($exit)->toBe(1)
+        // No stub is blamed for it: --factory adds this import to the model,
+        // so the stub the sweep happens to reach first never carries it, and
+        // naming one sends the reader to a file that is not the problem, in
+        // the one directory here meant to be edited.
+        ->and(Artisan::output())
+        ->toContain('under the name [HasFactory]')
+        ->not->toContain('.stub');
 
     expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();
 });

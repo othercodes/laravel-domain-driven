@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 
 /*
@@ -77,11 +78,16 @@ test('it refuses a handler named after the queue interface', function () {
     // queueTheHandler adds ShouldQueue after the stub is rendered, so the
     // handler came out as `class ShouldQueue implements ShouldQueue` under its
     // own import: a fatal, reported as created in green.
-    $this->artisan('ldd:make:event-handler', [
+    $this->withoutMockingConsoleOutput();
+
+    $exit = $this->artisan('ldd:make:event-handler', [
         'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'ShouldQueue', '--queued' => true,
-    ])
-        ->expectsOutputToContain('would put two things under the name')
-        ->assertFailed();
+    ]);
+
+    expect($exit)->toBe(1)
+        ->and(Artisan::output())
+        ->toContain('under the name [ShouldQueue]')
+        ->not->toContain('.stub');
 
     expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers'))->not->toBeDirectory();
 });

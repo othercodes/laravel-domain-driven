@@ -228,7 +228,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
 
         if ($this->wants('factory') && ! $model->declaresMethod('newFactory')) {
-            $lines[] = 'use \Illuminate\Database\Eloquent\Factories\HasFactory;';
+            $lines[] = 'in the class body: use \Illuminate\Database\Eloquent\Factories\HasFactory;';
             $lines[] = "protected static function newFactory(): \\{$factory} { return \\{$factory}::new(); }";
         }
 
@@ -483,7 +483,8 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // Unreadable is not the same as declaring nothing, and a provider that
         // does not parse has a louder problem than this hint.
         return ! $provider->parsed()
-            || in_array("/Shared/Infrastructure/Http/Routes/{$kind}.php", $provider->propertyStrings('routes'), true);
+            // The file a declaration names, not one spelling of the path.
+            || array_any($provider->propertyStrings('routes'), fn (string $path): bool => str_ends_with($path, "/{$kind}.php"));
     }
 
     /**

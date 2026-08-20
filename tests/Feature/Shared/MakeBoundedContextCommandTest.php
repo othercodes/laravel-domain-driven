@@ -88,6 +88,30 @@ test('it names only the file that is missing from $routes', function () {
         ->not->toContain("'web' => [__DIR__.'/Shared/Infrastructure/Http/Routes/web.php'],");
 });
 
+test('it recognises a declared path however it is written', function () {
+    // The check matched the one spelling the stub writes, so a provider that
+    // says the same path any other way read as declaring nothing, and the
+    // command then said "nothing loads it" about a file that loads.
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true])
+        ->assertSuccessful();
+
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    File::put($provider, str_replace(
+        "__DIR__.'/Shared/Infrastructure/Http/Routes/web.php'",
+        "dirname(__DIR__).'/ScaffoldFixture/Shared/Infrastructure/Http/Routes/web.php'",
+        File::get($provider)
+    ));
+
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true]);
+
+    expect(Artisan::output())
+        ->toContain('Bounded context [ScaffoldFixture]')
+        ->not->toContain('does not declare');
+});
+
 test('it says nothing once the provider declares them', function () {
     // Created with both flags, so the stub declared both.
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true, '--api' => true])

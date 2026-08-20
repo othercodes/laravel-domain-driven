@@ -109,6 +109,19 @@ final class SourceFile
      * every other question here, and "no such method" read off either of them
      * is not a fact about the class, it is the absence of the class.
      */
+    public function declaresClass(string $name): bool
+    {
+        return $this->finder->findFirst(
+            $this->ast,
+            fn (Node $node): bool => $node instanceof Node\Stmt\Class_
+                && $node->name !== null
+                && $node->name->toString() === $name
+        ) !== null;
+    }
+
+    /**
+     * Whether a class in the file declares this method.
+     */
     /**
      * The tables a migration creates in up(), as named in its Schema::create calls.
      *
@@ -159,19 +172,6 @@ final class SourceFile
         return $tables;
     }
 
-    public function declaresClass(string $name): bool
-    {
-        return $this->finder->findFirst(
-            $this->ast,
-            fn (Node $node): bool => $node instanceof Node\Stmt\Class_
-                && $node->name !== null
-                && $node->name->toString() === $name
-        ) !== null;
-    }
-
-    /**
-     * Whether a class in the file declares this method.
-     */
     public function declaresMethod(string $method): bool
     {
         return $this->finder->findFirst(

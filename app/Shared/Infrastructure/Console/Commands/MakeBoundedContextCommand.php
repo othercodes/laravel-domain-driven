@@ -65,7 +65,7 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
         $providerExisted = $this->files->exists($provider);
 
         $this->writeProvider($context, $path);
-        $routes = $this->writeRoutes($context, $path);
+        $this->writeRoutes($context, $path);
         $registered = $this->registerProvider($context);
 
         $this->newLine();
@@ -120,7 +120,11 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
         return array_values(array_filter(
             ['web', 'api'],
             fn (string $kind): bool => $this->files->exists(app_path("{$context}/Shared/Infrastructure/Http/Routes/{$kind}.php"))
-                && ! in_array("/Shared/Infrastructure/Http/Routes/{$kind}.php", $paths, true)
+                // Matched on the file a declaration names, not on the one
+                // spelling the stub happens to write. Any other way of saying
+                // the same path read as undeclared, and the command then said
+                // "nothing loads it" about a file that loads.
+                && ! array_any($paths, fn (string $path): bool => str_ends_with($path, "/{$kind}.php"))
         ));
     }
 

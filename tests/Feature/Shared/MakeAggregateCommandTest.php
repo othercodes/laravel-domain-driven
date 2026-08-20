@@ -264,6 +264,27 @@ test('it refuses a table Shared already creates a migration for', function () {
     expect(app_path('ScaffoldFixture/Jobs'))->not->toBeDirectory();
 });
 
+test('the hints for a model it did not write name every class in full', function () {
+    // These go into a model this run did not write, so the imports it carries
+    // are not ours to predict, and the classes named live in Domain\Events and
+    // Domain\Factories rather than beside it: pasted short they resolve to the
+    // model's own namespace, and to nothing. Same for the use case hint, which
+    // names the aggregate for a file under Application.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
+
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true, '--factory' => true,
+    ]);
+
+    expect(Artisan::output())
+        ->toContain('\App\ScaffoldFixture\Widgets\Domain\Events\WidgetCreated::new(')
+        ->toContain('use \Illuminate\Database\Eloquent\Factories\HasFactory;')
+        ->toContain(': \App\ScaffoldFixture\Widgets\Domain\Factories\WidgetFactory')
+        ->toContain('\App\ScaffoldFixture\Widgets\Domain\Widget::new($input)');
+});
+
 test('the snippets it prints name every class in full', function () {
     // Pasted without it, the seeder entry resolves inside Database\Seeders,
     // which composer maps to two directories that do not hold it, so db:seed
@@ -448,7 +469,9 @@ test('it says what an older aggregate needs before a factory type checks', funct
     // this the aggregate gets a factory that does not pass static analysis
     // and nothing says which two lines are missing.
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--factory' => true])
-        ->expectsOutputToContain('implements BuildsFromAttributes')
+        // In full, like every other class these hints name: the line goes
+        // into a model this run did not write.
+        ->expectsOutputToContain('implements \App\Shared\Domain\BuildsFromAttributes')
         ->expectsOutputToContain('new() to return static')
         ->assertSuccessful();
 });

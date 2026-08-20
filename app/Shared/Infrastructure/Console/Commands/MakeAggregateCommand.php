@@ -213,15 +213,23 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // newFactory(), which is fatal, and registering the event twice. It is
         // the instance handle() already read, so a model that does not parse
         // never reaches here to be read as carrying nothing.
+        // Every class written out in full. These lines go into a model this
+        // run did not write, so the imports it carries are not ours to
+        // predict, and the classes named live in Domain\Events and
+        // Domain\Factories rather than beside it: pasted short, they resolve
+        // to the model's own namespace and to nothing at all.
+        $event = "App\\{$this->context}\\{$this->plural}\\Domain\\Events\\{$this->aggregate}Created";
+        $factory = "App\\{$this->context}\\{$this->plural}\\Domain\\Factories\\{$this->aggregate}Factory";
+
         $lines = [];
 
         if ($this->wants('events') && ! $model->calls('registerDomainEvent')) {
-            $lines[] = "in new(): \${$this->variable}->registerDomainEvent({$this->aggregate}Created::new(\${$this->variable}->id));";
+            $lines[] = "in new(): \${$this->variable}->registerDomainEvent(\\{$event}::new(\${$this->variable}->id));";
         }
 
         if ($this->wants('factory') && ! $model->declaresMethod('newFactory')) {
-            $lines[] = 'use HasFactory; (imported from Illuminate\Database\Eloquent\Factories)';
-            $lines[] = "protected static function newFactory(): {$this->aggregate}Factory { return {$this->aggregate}Factory::new(); }";
+            $lines[] = 'use \Illuminate\Database\Eloquent\Factories\HasFactory;';
+            $lines[] = "protected static function newFactory(): \\{$factory} { return \\{$factory}::new(); }";
         }
 
         // An aggregate written before the factory base class existed declares
@@ -230,7 +238,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // halves are named because they only work together: the interface
         // returns static, so self would not satisfy it.
         if ($this->wants('factory') && ! $model->implementsInterface(self::BUILDS_FROM_ATTRIBUTES)) {
-            $lines[] = 'implements BuildsFromAttributes (imported from App\Shared\Domain)';
+            $lines[] = 'implements \App\Shared\Domain\BuildsFromAttributes';
             $lines[] = 'and change new() to return static, building with new static(...)';
         }
 
@@ -283,7 +291,9 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         $this->newLine();
         $this->line("  <fg=yellow>Nothing publishes {$this->aggregate}Created. Add a use case in {$this->plural}/Application that does:</>");
-        $this->line("  <fg=gray>\${$this->variable} = \$this->repository->save({$this->aggregate}::new(\$input));</>");
+        // In full for the same reason: this goes into a use case under
+        // Application, and the aggregate lives in Domain.
+        $this->line("  <fg=gray>\${$this->variable} = \$this->repository->save(\\App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate}::new(\$input));</>");
         $this->line("  <fg=gray>\${$this->variable}->publishDomainEvents(\$this->eventBus);  // ComplexHeart\\Domain\\Contracts\\Events\\EventBus</>");
         $this->line('  <fg=gray>// both inside DB::transaction, so a failing listener cannot leave the aggregate persisted</>');
     }

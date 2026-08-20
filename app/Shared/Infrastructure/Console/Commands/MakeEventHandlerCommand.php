@@ -58,6 +58,23 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
+        // Asked of the stubs as this run would render them, before anything
+        // is written. The names that can collide are the ones interpolated
+        // in, so an unrendered stub has nothing useful to compare.
+        //
+        // After the event is resolved, because the handler's only import is
+        // the event: a handler named InvoiceCreated lands under it. --queued
+        // adds ShouldQueue afterwards, which the stub cannot know about.
+        if ($this->refusesCollidingNames('event-handler', [
+            '{{ context }}' => $target['context'],
+            '{{ plural }}' => $target['plural'],
+            '{{ name }}' => $name,
+            '{{ event }}' => $event,
+            '{{ handlerImplements }}' => '',
+        ], ['Illuminate\Contracts\Queue\ShouldQueue'])) {
+            return self::FAILURE;
+        }
+
         $provider = app_path("{$target['context']}/{$target['context']}ServiceProvider.php");
         $contents = $this->files->get($provider);
 
@@ -165,11 +182,17 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         $handlerClass = "App\\{$target['context']}\\{$target['plural']}\\Application\\EventHandlers\\{$name}";
         $eventClass = "App\\{$target['context']}\\{$target['plural']}\\Domain\\Events\\{$event}";
 
-        $updated = $this->withImport($contents, $eventClass);
-        $updated = $updated === null ? null : $this->withImport($updated, $handlerClass);
-        $updated = $updated === null
-            ? null
-            : $this->appendToList($updated, 'array $events = [', "        {$event}::class => {$name}::class,");
+        // Written out in full rather than imported under their short names.
+        // Handler and event names are free text, so either may collide with
+        // something the provider already imports, and two imports resolving to
+        // one short name is a fatal that takes the application down from a
+        // command that just printed green. $commands and $migrations avoid it
+        // the same way.
+        $updated = $this->appendToList(
+            $contents,
+            'array $events = [',
+            "        \\{$eventClass}::class => \\{$handlerClass}::class,"
+        );
 
         if ($updated === null) {
             $this->components->twoColumnDetail($this->relative($provider), '<fg=red>could not be wired</>');

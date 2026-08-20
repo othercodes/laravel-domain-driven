@@ -31,6 +31,53 @@ afterEach(function () {
     }
 });
 
+test('a function import in a stub does not take a class name', function () {
+    // Functions and constants have their own symbol tables, so neither can
+    // collide with a class. The skip for them was written but applied only to
+    // the side the comparison was asked about, so a `use function` line
+    // reaching it as the candidate lost its prefix along with its namespace
+    // and read as taken by an earlier Money import. Every use case name was
+    // then refused, over a file PHP compiles without complaint, and no name
+    // the caller could pick would have helped.
+    //
+    // stubs/ is the one directory here meant to be edited, which is the whole
+    // premise of reading the guard's vocabulary out of it.
+    $stub = base_path('stubs/use-case.stub');
+    $original = File::get($stub);
+
+    File::put($stub, str_replace(
+        'use App\{{ context }}\{{ plural }}\Domain\{{ aggregate }};',
+        "use App\Shared\Domain\Money;\nuse function App\Shared\Domain\money;\nuse App\{{ context }}\{{ plural }}\Domain\{{ aggregate }};",
+        $original
+    ));
+
+    try {
+        $this->artisan('ldd:make:use-case', [
+            'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'CreateWidget',
+        ])->assertSuccessful();
+
+        // And the real collision is still caught with that stub in place.
+        $this->artisan('ldd:make:use-case', [
+            'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'Widget',
+        ])->assertFailed();
+    } finally {
+        File::put($stub, $original);
+    }
+});
+
+test('it refuses a use case named after the aggregate it acts on', function (string $name) {
+    // Both use-case stubs import the aggregate and its repository, so a use
+    // case under either name lands on its own import: two things under one
+    // short name, which PHP refuses to compile.
+    $this->artisan('ldd:make:use-case', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => $name,
+    ])
+        ->expectsOutputToContain('would put two things under the name')
+        ->assertFailed();
+
+    expect(app_path('ScaffoldFixture/Widgets/Application/'.$name.'.php'))->not->toBeFile();
+})->with(['the aggregate' => 'Widget', 'its repository' => 'WidgetRepository']);
+
 test('it creates the use case in the aggregate application layer', function () {
     $this->artisan('ldd:make:use-case', [
         'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',

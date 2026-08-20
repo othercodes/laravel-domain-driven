@@ -84,6 +84,22 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
+        // Asked of the stubs as this run would render them, before anything
+        // is written. The names that can collide are the ones interpolated
+        // in, so an unrendered stub has nothing useful to compare.
+        //
+        // --factory adds HasFactory to the model after the stub is rendered,
+        // so the stubs alone do not know about it.
+        // seederUses is asked for whether or not --factory was passed, for the
+        // same reason every stub is asked whether or not its flag was: the
+        // guard answering differently depending on the flags is a worse thing
+        // to reason about than a refused name nobody should want.
+        if ($this->refusesCollidingNames('aggregate.*', $this->replacements([
+            '{{ seederUses }}' => $this->seederUses(),
+        ]), ['Illuminate\Database\Eloquent\Factories\HasFactory'])) {
+            return self::FAILURE;
+        }
+
         if ($this->context === self::SHARED_CONTEXT) {
             $this->components->error('[Shared] is the foundation layer, not a bounded context that can own aggregates.');
 
@@ -466,10 +482,17 @@ final class MakeAggregateCommand extends ScaffoldCommand
         foreach ($uses as $class) {
             $imported = $this->withImport($model, $class);
 
-            // stubs/ is meant to be edited, so a stub with no namespace line
-            // is reachable. Say so rather than dying on a TypeError.
+            // Two reasons reach here and the fix differs, so neither may be
+            // guessed at. An aggregate named after something the stub already
+            // imports is the reachable one: `hAs` studlies to `HAs`, whose
+            // factory answers to the same name as Eloquent's HasFactory, and
+            // PHP compares those without case.
             if ($imported === null) {
-                $this->components->error("Could not add [{$class}] to the model: stubs/aggregate.model.stub needs a namespace declaration.");
+                $this->components->error("Could not add [{$class}] to the model.");
+                $this->components->bulletList([
+                    "Rename the aggregate if something the model already imports answers to the same short name as [{$class}].",
+                    'Otherwise stubs/aggregate.model.stub has no namespace declaration; it is meant to be edited, so that is reachable too.',
+                ]);
 
                 return false;
             }
@@ -504,9 +527,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
             $seeder = $this->stub('aggregate.seeder', $this->replacements([
                 // App sorts before Illuminate, so this goes in ahead of the
                 // Seeder import and Pint's ordered_imports has nothing to fix.
-                '{{ seederUses }}' => $this->wants('factory')
-                    ? "use App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate};\n"
-                    : '',
+                '{{ seederUses }}' => $this->wants('factory') ? $this->seederUses() : '',
                 '{{ seederBody }}' => $this->wants('factory')
                     ? "        {$this->aggregate}::factory()->count(10)->create();\n"
                     : "        // Nothing here yet. Generate a factory with --factory, then:\n        // {$this->aggregate}::factory()->count(10)->create();\n",
@@ -627,7 +648,15 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         $contract = "App\\{$this->context}\\{$this->plural}\\Domain\\Contracts\\{$this->aggregate}Repository";
         $eloquent = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\Eloquent{$this->aggregate}Repository";
-        $binding = "        {$this->aggregate}Repository::class => Eloquent{$this->aggregate}Repository::class,";
+        // Every entry this method appends is written out in full rather than
+        // imported under its short name. Aggregate and command names are free
+        // text: two aggregates in one context may each want a SyncThings, and
+        // an aggregate called Widget puts a WidgetRepository beside whatever
+        // the provider already imports. Two imports resolving to one short
+        // name is a compile-time fatal, and because the provider is loaded
+        // from bootstrap/providers.php it takes down every request and every
+        // artisan call, including the one needed to undo it.
+        $binding = "        \\{$contract}::class => \\{$eloquent}::class,";
 
         $contents = $this->files->get($file);
 
@@ -647,9 +676,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
 
         if (! in_array($contract, $declared->propertyKeys('bindings'), true)) {
-            $contents = $this->withImport($contents, $contract);
-            $contents = $contents === null ? null : $this->withImport($contents, $eloquent);
-            $contents = $contents === null ? null : $this->appendToArray($contents, 'bindings', $binding);
+            $contents = $this->appendToArray($contents, 'bindings', $binding);
         }
 
         if ($contents !== null && $this->wants('migration')) {
@@ -670,13 +697,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
                 continue;
             }
 
-            // Written out in full rather than imported under its short name.
-            // A console command's name is free text, so two aggregates in one
-            // context may each have a SyncThings, and one may be called
-            // WidgetRepository like something the provider already imports.
-            // Two use statements resolving to the same short name is a fatal
-            // error that takes the whole application down, not just this
-            // context. $migrations avoids it the same way, by holding strings.
             $contents = $this->appendToArray($contents, 'commands', "        \\{$class}::class,");
         }
 
@@ -709,6 +729,20 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * @param  array<string, string>  $extra
      * @return array<string, string>
      */
+    /**
+     * The import --factory adds to the seeder, ahead of Illuminate's Seeder.
+     *
+     * Written once because the collision guard has to render the stub exactly
+     * as this run will: with the placeholder left in, `{{ seederUses }}use
+     * Illuminate\Database\Seeder;` is one line whose `use` is not at column
+     * zero, and the guard never saw it. `ldd:make:aggregate Billing Seeder
+     * --all` wrote both Seeder imports and exited 0.
+     */
+    private function seederUses(): string
+    {
+        return "use App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate};\n";
+    }
+
     private function replacements(array $extra = []): array
     {
         return array_merge([

@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 
 /*
@@ -67,9 +68,123 @@ test('it binds the repository in the context provider', function () {
         ->assertSuccessful();
 
     expect(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')))
-        ->toContain('use App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository;')
-        ->toContain('use App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository;')
-        ->toContain('WidgetRepository::class => EloquentWidgetRepository::class,');
+        ->toContain('\App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,');
+});
+
+/*
+ * Two things answering to one short name in one file is the same fatal whether
+ * they are two imports or an import and the class the file declares, and a
+ * generated file reaches it from either side.
+ *
+ * What is asserted is the invariant itself, from outside: either the command
+ * refuses, or everything it wrote compiles. An earlier version of this test
+ * asserted that every name a stub imports is refused, which is a different and
+ * wrong claim: an aggregate called Exception generates ExceptionException
+ * under `use Exception`, and Schema appears only in the migration stub, which
+ * declares an anonymous class. Both are fine, and a guard that refused them
+ * would be answering a question nobody asked.
+ */
+test('for every name the stubs import, the command refuses or writes files that compile', function () {
+    $imported = collect(File::glob(base_path('stubs/aggregate.*.stub')))
+        ->flatMap(function (string $stub): array {
+            // Not anchored at column zero alone: aggregate.seeder.stub opens
+            // its import line with a placeholder, and that is exactly the one
+            // name this sweep could not reach. Still not matching an indented
+            // `use`, which inside a class body is a trait, not an import.
+            preg_match_all('/(?:^|\}\})use ([^;\n]+);$/m', File::get($stub), $matches);
+
+            return $matches[1];
+        })
+        ->reject(fn (string $import): bool => str_contains($import, '{{'))
+        ->map(fn (string $import): string => class_basename($import))
+        ->unique()
+        ->values();
+
+    expect($imported)->not->toBeEmpty();
+
+    foreach ($imported as $name) {
+        $this->artisan('ldd:make:aggregate', [
+            'context' => 'ScaffoldFixture', 'name' => $name, '--all' => true,
+        ])->run();
+
+        foreach (File::allFiles(app_path('ScaffoldFixture')) as $file) {
+            expect(php_parses($file->getPathname()))->toBeTrue(
+                "ldd:make:aggregate ScaffoldFixture {$name} --all wrote {$file->getFilename()}, which does not compile."
+            );
+        }
+
+        File::deleteDirectory(app_path('ScaffoldFixture/'.Str::plural($name)));
+    }
+});
+
+/*
+ * Eleven of the thirteen aggregate stubs declare a name derived from the
+ * aggregate rather than the aggregate itself, and the collision follows the
+ * derived name. Comparing the argument alone caught Model, whose stub declares
+ * it as written, and waved these three through: that is the half-fixed shape
+ * this branch exists to end.
+ */
+test('it refuses an aggregate whose derived class name collides', function (string $name, array $flags) {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => $name] + $flags)
+        ->expectsOutputToContain('would put two things under the name')
+        ->assertFailed();
+
+    expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();
+})->with([
+    // {{ aggregate }}Resource lands on Illuminate's JsonResource.
+    'Json' => ['Json', ['--api' => true]],
+    // {{ aggregate }}Factory lands on the shared AggregateFactory.
+    'Aggregate' => ['Aggregate', ['--factory' => true]],
+    // {{ aggregate }}Controller lands on the shared InertiaController.
+    'Inertia' => ['Inertia', ['--web' => true]],
+]);
+
+test('it refuses an aggregate named after an import the command adds itself', function () {
+    // Not every import a generated file ends up with comes from its stub.
+    // --factory adds HasFactory to the model afterwards, so a guard reading
+    // only stubs/ waves `class HasFactory` through, under its own import.
+    // Read back rather than asserted through doesntExpectOutputToContain,
+    // which matches per write call and never sees what the components print.
+    $this->withoutMockingConsoleOutput();
+
+    $exit = $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'HasFactory', '--factory' => true]);
+
+    expect($exit)->toBe(1)
+        // No stub is blamed for it: --factory adds this import to the model,
+        // so the stub the sweep happens to reach first never carries it, and
+        // naming one sends the reader to a file that is not the problem, in
+        // the one directory here meant to be edited.
+        ->and(Artisan::output())
+        ->toContain('under the name [HasFactory]')
+        ->not->toContain('.stub');
+
+    expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();
+});
+
+test('the refusal names the stub the collision came from', function () {
+    // Naming the wrong file is how somebody spends an afternoon editing a stub
+    // that was never the problem.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Model'])
+        ->expectsOutputToContain('aggregate.model.stub')
+        ->assertFailed();
+});
+
+test('it binds a repository whose short name the provider already imports', function () {
+    // Same fatal as the event handler, reached through the binding instead:
+    // an aggregate called Widget wants a WidgetRepository, and nothing stops
+    // the provider already importing one from somewhere else.
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    File::put($provider, str_replace(
+        'use ComplexHeart',
+        "use App\Elsewhere\WidgetRepository;\nuse ComplexHeart",
+        File::get($provider)
+    ));
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
+        ->assertSuccessful();
+
+    expect(php_parses($provider))->toBeTrue();
 });
 
 test('it registers the migration path only when a migration is generated', function () {
@@ -302,8 +417,8 @@ test('it does not bind twice when the provider was reformatted', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
 
     File::put($provider, str_replace(
-        '        WidgetRepository::class => EloquentWidgetRepository::class,',
-        '            WidgetRepository::class   => EloquentWidgetRepository::class,',
+        '        \App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,',
+        '            \App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class   => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,',
         File::get($provider)
     ));
 
@@ -312,7 +427,7 @@ test('it does not bind twice when the provider was reformatted', function () {
 
     // EloquentWidgetRepository::class contains WidgetRepository::class, so
     // count the mapping rather than the bare class reference.
-    expect(substr_count(File::get($provider), '=> EloquentWidgetRepository::class'))->toBe(1);
+    expect(substr_count(File::get($provider), '=> \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class'))->toBe(1);
 });
 
 test('it refuses to scaffold into the Shared foundation layer', function () {
@@ -358,7 +473,7 @@ test('it wires a provider whose arrays are declared inline', function () {
 
     expect(File::get($provider))
         ->toContain('FooRepository::class => EloquentFooRepository::class,')
-        ->toContain('WidgetRepository::class => EloquentWidgetRepository::class,');
+        ->toContain('\App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,');
 });
 
 test('it pluralises the aggregate directory and studlies the class', function () {
@@ -611,7 +726,7 @@ test('it refuses to wire into a provider that does not parse', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
         ->assertFailed();
 
-    expect(substr_count(File::get($provider), '=> EloquentWidgetRepository::class'))->toBe(1);
+    expect(substr_count(File::get($provider), '=> \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class'))->toBe(1);
 });
 
 test('it fails when the context provider has nothing to wire', function () {

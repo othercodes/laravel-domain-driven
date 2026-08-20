@@ -262,6 +262,141 @@ abstract class ScaffoldCommand extends Command
     }
 
     /**
+     * Refuses, loudly, a run that would generate a file holding two things
+     * under one short name.
+     *
+     * PHP rejects that at compile time whether the two are two imports or an
+     * import and the class the file declares, and a generated file reaches it
+     * from either side: an aggregate called Model lands under Eloquent's
+     * import, a handler called InvoiceCreated lands under its own event, and
+     * an aggregate called Collection puts Illuminate's Collection next to the
+     * one in its own domain.
+     *
+     * The stubs are rendered and read, rather than their names being listed
+     * here. stubs/ is the one thing in this repository meant to be edited, so
+     * a list would describe it as it was the day it was written, and an
+     * earlier version of this guard compared the bare argument against
+     * unrendered imports: it caught Model, whose stub declares the aggregate
+     * name as written, and waved through Json and Aggregate, whose stubs
+     * declare a name derived from it.
+     *
+     * Every stub the command can render is asked, including ones a given run
+     * would not reach. Refusing an aggregate called Request whether or not
+     * --web was passed costs a name nobody should want in a Laravel
+     * application, and a guard that answers differently depending on the flags
+     * is a worse thing to reason about.
+     *
+     * @param  array<string, string>  $replacements  the run's stub substitutions
+     * @param  list<string>  $also  imports the command adds after rendering
+     */
+    protected function refusesCollidingNames(string $glob, array $replacements, array $also = []): bool
+    {
+        foreach ($this->files->glob(base_path("stubs/{$glob}.stub")) ?: [] as $path) {
+            $rendered = str_replace(array_keys($replacements), array_values($replacements), $this->files->get($path));
+
+            preg_match_all('/^use (.+);$/m', $rendered, $imports);
+            preg_match_all('/^(?:(?:final|abstract|readonly)\s+)*(?:class|interface|trait|enum)\s+(\w+)/m', $rendered, $declared);
+
+            // Functions and constants have their own symbol tables, so neither
+            // can collide with a class name. Dropped here rather than left to
+            // shortNameTaken, which only skips them on the side it is asked
+            // about: a `use function` line reaching it as the candidate has
+            // its prefix stripped with the namespace, and `money` then reads
+            // as taken by an earlier `use App\...\Money`. The file compiles
+            // and no name the caller could pick would change it.
+            $classes = array_values(array_filter(
+                $imports[1],
+                fn (string $import): bool => preg_match('/^(function|const)\s/i', trim($import)) !== 1
+            ));
+
+            // An import the command adds that the stub already carries is the
+            // same import, not a collision. Without this, a stub edited to
+            // bake in HasFactory would refuse every aggregate name there is,
+            // and advise picking another one.
+            $added = array_diff(array_map('trim', $also), array_map('trim', $classes));
+
+            // A migration declares an anonymous class, and the route stubs
+            // declare nothing at all.
+            $names = [...$classes, ...$added, ...$declared[1]];
+
+            foreach ($names as $index => $name) {
+                $earlier = array_slice($names, 0, $index);
+
+                if (! $this->shortNameTaken($earlier, $name)) {
+                    continue;
+                }
+
+                $other = '';
+
+                foreach ($earlier as $candidate) {
+                    if ($this->shortNameTaken([$candidate], $name)) {
+                        $other = trim($candidate);
+
+                        break;
+                    }
+                }
+
+                // An import this command adds afterwards lands in one file,
+                // not in every stub the glob matched, so naming the stub the
+                // sweep happened to reach first sends the reader to a file
+                // that was never the problem. Name the two things instead.
+                $injected = in_array($name, $added, true) || in_array($other, $added, true);
+                $short = class_basename(trim($name));
+
+                $this->components->error($injected
+                    ? "This run would put two things under the name [{$short}] in one file: [{$other}] and [".trim($name).'].'
+                    : 'Generating ['.basename($path).'] would put two things under the name ['.$short.'].');
+                $this->components->bulletList([
+                    'PHP refuses to compile a file that does, whether they are two imports or an import and the class itself.',
+                    'Pick another name.',
+                ]);
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether one of the existing imports already answers to the short name
+     * the given class would introduce.
+     *
+     * @param  list<string>  $imports  the text of each `use` line, without `use` or the semicolon
+     */
+    protected function shortNameTaken(array $imports, string $class): bool
+    {
+        $shortName = function (string $import): string {
+            $import = trim($import);
+
+            // `use Ours\Widget as TheirWidget;` occupies TheirWidget, not Widget.
+            if (preg_match('/\s+as\s+(\S+)$/i', $import, $alias) === 1) {
+                return $alias[1];
+            }
+
+            return substr((string) strrchr('\\'.$import, '\\'), 1);
+        };
+
+        foreach ($imports as $import) {
+            // Function and constant imports live in their own symbol tables,
+            // so neither can collide with a class name.
+            if (preg_match('/^(function|const)\s/i', trim($import)) === 1) {
+                continue;
+            }
+
+            // strcasecmp, not ===. PHP resolves class names case-insensitively,
+            // so `use Ours\HAsFactory;` beside Eloquent's HasFactory is the
+            // same fatal, and Str::studly leaves inner case alone: an aggregate
+            // asked for as `hAs` arrives here as `HAs`.
+            if (strcasecmp($shortName($import), $shortName($class)) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Inserts an import in the order Pint's ordered_imports fixer expects.
      *
      * Returns null when the import cannot be placed, so the caller reports a
@@ -274,6 +409,20 @@ abstract class ScaffoldCommand extends Command
         }
 
         preg_match_all('/^use (.+);$/m', $contents, $matches);
+
+        // Two imports resolving to one short name is a compile-time fatal, and
+        // it takes down every file that loads this one. The check above
+        // compares whole names, so on its own it is happy to put
+        // Ours\Widget next to Theirs\Widget.
+        //
+        // The refusal belongs here rather than in each caller. It was written
+        // out once before, as a comment on the one append that had already
+        // caused the fatal, and the other five call sites carried on importing
+        // into files whose contents are not ours to predict. An invariant kept
+        // by whoever remembers it is not kept.
+        if ($this->shortNameTaken($matches[1], $class)) {
+            return null;
+        }
 
         $imports = [...$matches[1], $class];
 

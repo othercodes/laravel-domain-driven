@@ -109,6 +109,41 @@ final class SourceFile
      * every other question here, and "no such method" read off either of them
      * is not a fact about the class, it is the absence of the class.
      */
+    /**
+     * The tables a migration creates, as named in its Schema::create calls.
+     *
+     * Asked of the parsed source rather than of the text, for the reason this
+     * file gives everywhere else: a Schema::create parked behind // is not a
+     * table anybody creates, and neither is one quoted inside a string. A
+     * migration that does not parse answers with nothing, which is safe here
+     * because migrate is already broken and says so far more loudly.
+     *
+     * @return list<string>
+     */
+    public function createdTables(): array
+    {
+        $calls = $this->finder->find(
+            $this->ast,
+            fn (Node $node): bool => $node instanceof Node\Expr\StaticCall
+                && $node->class instanceof Node\Name
+                && $node->class->toString() === 'Illuminate\Support\Facades\Schema'
+                && $node->name instanceof Node\Identifier
+                && $node->name->toString() === 'create'
+        );
+
+        $tables = [];
+
+        foreach ($calls as $call) {
+            $first = $call->args[0] ?? null;
+
+            if ($first instanceof Node\Arg && $first->value instanceof Node\Scalar\String_) {
+                $tables[] = $first->value->value;
+            }
+        }
+
+        return $tables;
+    }
+
     public function declaresClass(string $name): bool
     {
         return $this->finder->findFirst(

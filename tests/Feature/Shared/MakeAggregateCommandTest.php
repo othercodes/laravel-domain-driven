@@ -149,6 +149,44 @@ test('every table Shared creates is refused, not just the ones its files are nam
     expect(app_path('ScaffoldFixture/Widgets'))->not->toBeDirectory();
 });
 
+test('a Schema::create left behind a comment owns nothing', function () {
+    // The guard reads the parsed source, not the text. Reading the text is
+    // what this codebase refuses everywhere else, and here it would refuse an
+    // aggregate over a table no migration creates, sending the developer to
+    // the --table escape hatch for a collision that is not there.
+    $dir = app_path('ScaffoldFixture/Orders/Infrastructure/Persistence/Migrations');
+
+    File::ensureDirectoryExists($dir);
+    File::put("{$dir}/2025_02_01_000000_create_orders_table.php", <<<'PHP'
+        <?php
+
+        use Illuminate\Database\Migrations\Migration;
+        use Illuminate\Database\Schema\Blueprint;
+        use Illuminate\Support\Facades\Schema;
+
+        return new class extends Migration
+        {
+            public function up(): void
+            {
+                Schema::create('orders', function (Blueprint $table) {
+                    $table->uuid('id')->primary();
+                });
+
+                // Schema::create('quotes', function (Blueprint $table) {
+                //     $table->uuid('id')->primary();
+                // });
+            }
+        };
+        PHP);
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Quote', '--migration' => true])
+        ->assertSuccessful();
+
+    // And the live one in the same file still owns its table.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true, '--table' => 'orders'])
+        ->assertFailed();
+});
+
 test('it refuses a table Shared already creates a migration for', function () {
     // The guard globbed app/*/*/.../Migrations, where aggregates keep theirs.
     // Shared keeps the framework's own one segment shallower, so cache, jobs,
@@ -177,7 +215,12 @@ test('the snippets it prints carry the import they need', function () {
     // The api controller too: it shares a short name with the web one and only
     // its full name tells them apart, which is the whole reason to print it.
     expect(Artisan::output())
-        ->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Persistence\\Seeders\\WidgetSeeder;')
+        // Fully qualified, not imported: DatabaseSeeder is one file every
+        // context adds to and it already imports a UserSeeder, so a second
+        // context owning a User would paste a colliding import and take
+        // db:seed down for every seeder there is.
+        ->toContain('\\App\\ScaffoldFixture\\Widgets\\Infrastructure\\Persistence\\Seeders\\WidgetSeeder::class,')
+        ->not->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Persistence\\Seeders\\WidgetSeeder;')
         ->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\WidgetController;')
         ->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\API\\WidgetController;');
 });

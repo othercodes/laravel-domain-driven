@@ -330,12 +330,17 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
 
-        // With its import. DatabaseSeeder declares the Database\Seeders
-        // namespace, which composer maps to two directories and neither holds
-        // this class, so the short name below resolves to something that does
-        // not exist and db:seed aborts on it.
-        $this->line("  <fg=gray>use {$class};</>");
-        $this->line("  <fg=gray>{$this->aggregate}Seeder::class,  // in \$seeders, or \$fixtures if it is sample data</>");
+        // Fully qualified, no import, exactly as wireProvider writes its own
+        // entries and for the same reason. DatabaseSeeder is one file every
+        // context adds to, and it already imports a UserSeeder: a second
+        // context with a User aggregate would paste a second import under that
+        // name, which PHP refuses to compile, and db:seed would then abort for
+        // every seeder rather than the new one.
+        //
+        // It also keeps this hint to one line, which belongs in one place. An
+        // import printed under the same heading as an array entry gets pasted
+        // into the array literal, and that is a parse error.
+        $this->line("  <fg=gray>\\{$class}::class,  // in \$seeders, or \$fixtures if it is sample data</>");
     }
 
     /**
@@ -495,7 +500,11 @@ final class MakeAggregateCommand extends ScaffoldCommand
                 // create_jobs_table.php creates jobs, job_batches and
                 // failed_jobs, and create_cache_table.php creates cache and
                 // cache_locks. Matching the name saw two of those five.
-                if (preg_match('/Schema::create\(\s*[\'"]'.preg_quote($this->table, '/').'[\'"]/', (string) $this->files->get($migration)) === 1) {
+                //
+                // And asked of the parsed source, not of the text, so a
+                // Schema::create left behind // does not refuse an aggregate
+                // over a table nothing creates.
+                if (in_array($this->table, SourceFile::at($migration)->createdTables(), true)) {
                     return $this->relative($dir);
                 }
             }

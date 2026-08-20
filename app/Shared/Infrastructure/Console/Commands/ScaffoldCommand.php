@@ -297,15 +297,27 @@ abstract class ScaffoldCommand extends Command
             preg_match_all('/^use (.+);$/m', $rendered, $imports);
             preg_match_all('/^(?:(?:final|abstract|readonly)\s+)*(?:class|interface|trait|enum)\s+(\w+)/m', $rendered, $declared);
 
+            // Functions and constants have their own symbol tables, so neither
+            // can collide with a class name. Dropped here rather than left to
+            // shortNameTaken, which only skips them on the side it is asked
+            // about: a `use function` line reaching it as the candidate has
+            // its prefix stripped with the namespace, and `money` then reads
+            // as taken by an earlier `use App\...\Money`. The file compiles
+            // and no name the caller could pick would change it.
+            $classes = array_values(array_filter(
+                $imports[1],
+                fn (string $import): bool => preg_match('/^(function|const)\s/i', trim($import)) !== 1
+            ));
+
             // An import the command adds that the stub already carries is the
             // same import, not a collision. Without this, a stub edited to
             // bake in HasFactory would refuse every aggregate name there is,
             // and advise picking another one.
-            $added = array_diff(array_map('trim', $also), array_map('trim', $imports[1]));
+            $added = array_diff(array_map('trim', $also), array_map('trim', $classes));
 
             // A migration declares an anonymous class, and the route stubs
             // declare nothing at all.
-            $names = [...$imports[1], ...$added, ...$declared[1]];
+            $names = [...$classes, ...$added, ...$declared[1]];
 
             foreach ($names as $index => $name) {
                 $earlier = array_slice($names, 0, $index);

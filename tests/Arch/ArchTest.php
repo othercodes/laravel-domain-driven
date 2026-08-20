@@ -198,6 +198,37 @@ arch('service providers extend the bounded context base provider')
     ->toExtend('ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider');
 
 /*
+ * Every provider declares the same wiring arrays the stub does. A provider
+ * missing one does not fail loudly at boot: the generator finds no array to
+ * append to, throws away the binding and the migration path it had already
+ * built, and the aggregate ships with its repository unbound. Both providers
+ * here were missing a different one.
+ *
+ * Read from the stub so the two cannot drift, and $routes is left out of it
+ * because the stub emits that one conditionally.
+ */
+test('every service provider declares the wiring arrays the stub does', function () use ($contexts, $appPath) {
+    preg_match_all(
+        '/^\s*(?:public|protected)\s+array\s+\$(\w+)/m',
+        (string) file_get_contents(dirname($appPath).'/stubs/bounded-context.provider.stub'),
+        $matches
+    );
+
+    expect($matches[1])->not->toBeEmpty();
+
+    foreach ($contexts as $context) {
+        $source = (string) file_get_contents("{$appPath}/{$context}/{$context}ServiceProvider.php");
+
+        foreach ($matches[1] as $property) {
+            expect($source)->toMatch(
+                '/(?:public|protected)\s+array\s+\$'.$property.'\s*=/',
+                "{$context}ServiceProvider does not declare \${$property}."
+            );
+        }
+    }
+});
+
+/*
 |--------------------------------------------------------------------------
 | Code Quality
 |--------------------------------------------------------------------------

@@ -30,6 +30,9 @@ class SharedServiceProvider extends BoundedContextServiceProvider
         EventBus::class => IlluminateEventBus::class,
     ];
 
+    /** @var array<class-string, class-string> */
+    protected array $events = [];
+
     protected array $migrations = [
         __DIR__.'/Infrastructure/Persistence/Migrations',
     ];

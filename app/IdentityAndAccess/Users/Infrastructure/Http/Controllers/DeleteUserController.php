@@ -8,6 +8,7 @@ use ComplexHeart\Domain\Contracts\Events\EventBus;
 use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Laravel\Fortify\Actions\ConfirmPassword;
 use Symfony\Component\HttpFoundation\Response;
@@ -29,13 +30,19 @@ class DeleteUserController extends Controller
         $this->confirmation = $confirmation;
     }
 
+    /**
+     * @throws ValidationException
+     */
     public function destroy(Request $request, StatefulGuard $guard): Response
     {
         $confirmation = $this->confirmation;
 
+        // Keyed 'password', which is what DeleteUserForm.vue binds. Under any
+        // other key the modal stays open saying nothing at all, on the most
+        // destructive thing a user can do to their own account.
         if (! $confirmation($guard, $request->user(), $request->password)) {
-            return back(303)->withErrors([
-                'Invalid Password' => __('The password is incorrect.'),
+            throw ValidationException::withMessages([
+                'password' => __('The password is incorrect.'),
             ]);
         }
 

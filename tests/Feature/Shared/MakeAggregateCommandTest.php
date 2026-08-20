@@ -124,6 +124,49 @@ test('for every name the stubs import, the command refuses or writes files that 
  * it as written, and waved these three through: that is the half-fixed shape
  * this branch exists to end.
  */
+test('it refuses a table Shared already creates a migration for', function () {
+    // The guard globbed app/*/*/.../Migrations, where aggregates keep theirs.
+    // Shared keeps the framework's own one segment shallower, so cache, jobs,
+    // failed_jobs and job_batches were invisible to it, and an aggregate
+    // called Job put a second create_jobs_table beside Shared's. Two create
+    // migrations for one table abort migrate on a fresh database.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Job', '--migration' => true])
+        ->expectsOutputToContain('app/Shared/Infrastructure/Persistence/Migrations')
+        ->assertFailed();
+
+    expect(app_path('ScaffoldFixture/Jobs'))->not->toBeDirectory();
+});
+
+test('the snippets it prints carry the import they need', function () {
+    // Pasted without it, the seeder entry resolves inside Database\Seeders,
+    // which composer maps to two directories that do not hold it, so db:seed
+    // aborts. The route line resolves to a global controller instead, which
+    // registers fine and 500s on the first request.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true, '--factory' => true, '--web' => true,
+    ]);
+
+    expect(Artisan::output())
+        ->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Persistence\\Seeders\\WidgetSeeder;')
+        ->toContain('use App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\WidgetController;');
+});
+
+test('it says when the route file exists but the provider does not declare it', function () {
+    // The reminder was skipped precisely when the file existed, which is the
+    // state that most needs saying: written by an earlier run, never declared,
+    // loaded by nothing, and this hint printing routes into it.
+    $file = app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes/web.php');
+
+    File::ensureDirectoryExists(dirname($file));
+    File::put($file, "<?php\n");
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true])
+        ->expectsOutputToContain('does not declare that file in $routes')
+        ->assertSuccessful();
+});
+
 test('it refuses an aggregate whose derived class name collides', function (string $name, array $flags) {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => $name] + $flags)
         ->expectsOutputToContain('would put two things under the name')

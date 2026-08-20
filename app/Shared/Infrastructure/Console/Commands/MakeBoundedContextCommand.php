@@ -76,11 +76,20 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
 
         // A route file the provider does not declare is never loaded, and the
         // only symptom is a 404.
-        if ($providerExisted && $routes !== []) {
-            $this->newLine();
-            $this->line("  <fg=yellow>{$context}ServiceProvider was left as it is. Declare the new file(s) in its \$routes:</>");
+        //
+        // Asked of the declaration, not of what this run happened to write.
+        // Keyed on the write, the reminder printed once, on the run that
+        // created the file, and never again: paste one of the two lines and
+        // every later run reports success over an api.php nothing loads, while
+        // ldd:make:aggregate --api goes on printing routes for it. $routes was
+        // the one declarative array no command read back.
+        $undeclared = $this->undeclaredRoutes($context, $provider);
 
-            foreach ($routes as $kind) {
+        if ($undeclared !== []) {
+            $this->newLine();
+            $this->line("  <fg=yellow>{$context}ServiceProvider does not declare these route files, so nothing loads them:</>");
+
+            foreach ($undeclared as $kind) {
                 $this->line("  <fg=gray>'{$kind}' => [__DIR__.'/Shared/Infrastructure/Http/Routes/{$kind}.php'],</>");
             }
         }
@@ -88,6 +97,31 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
         // The files exist but nothing loads them, so a script chaining on this
         // command must not treat it as done.
         return $registered ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * The route files that exist but are absent from the provider's $routes.
+     *
+     * @return list<string>
+     */
+    private function undeclaredRoutes(string $context, string $provider): array
+    {
+        $declared = SourceFile::at($provider);
+
+        // Unreadable is not the same as declaring nothing. Reporting every
+        // file as undeclared over a provider that does not parse names the
+        // wrong problem, and the right one is loud already.
+        if (! $declared->parsed()) {
+            return [];
+        }
+
+        $paths = $declared->propertyStrings('routes');
+
+        return array_values(array_filter(
+            ['web', 'api'],
+            fn (string $kind): bool => $this->files->exists(app_path("{$context}/Shared/Infrastructure/Http/Routes/{$kind}.php"))
+                && ! in_array("/Shared/Infrastructure/Http/Routes/{$kind}.php", $paths, true)
+        ));
     }
 
     private function writeProvider(string $context, string $path): void

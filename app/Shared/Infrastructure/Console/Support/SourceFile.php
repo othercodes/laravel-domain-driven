@@ -201,16 +201,47 @@ final class SourceFile
      */
     public function propertyStrings(string $property): array
     {
-        return $this->arrayItems($property, function (Node\ArrayItem $item): ?string {
-            if ($item->value instanceof Node\Scalar\String_) {
-                return $item->value->value;
+        $default = $this->propertyDefault($property);
+
+        return $default instanceof Node\Expr\Array_ ? $this->strings($default) : [];
+    }
+
+    /**
+     * Every string an array literal holds, however deeply.
+     *
+     * $routes is keyed by middleware group, so its paths sit one level in,
+     * and reading only the top level answered "declares nothing" for every
+     * provider there is. That is why $routes was the one declarative array no
+     * command checked: not a decision, an empty answer nobody questioned.
+     *
+     * @return list<string>
+     */
+    private function strings(Node\Expr\Array_ $array): array
+    {
+        $found = [];
+
+        foreach ($array->items as $item) {
+            $value = $item->value;
+
+            if ($value instanceof Node\Scalar\String_) {
+                $found[] = $value->value;
+
+                continue;
             }
 
-            return $item->value instanceof Node\Expr\BinaryOp\Concat
-                && $item->value->right instanceof Node\Scalar\String_
-                    ? $item->value->right->value
-                    : null;
-        });
+            // __DIR__.'/path', which is how every declared path is written.
+            if ($value instanceof Node\Expr\BinaryOp\Concat && $value->right instanceof Node\Scalar\String_) {
+                $found[] = $value->right->value;
+
+                continue;
+            }
+
+            if ($value instanceof Node\Expr\Array_) {
+                $found = [...$found, ...$this->strings($value)];
+            }
+        }
+
+        return $found;
     }
 
     /**

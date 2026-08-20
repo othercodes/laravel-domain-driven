@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 
 /*
@@ -46,6 +47,57 @@ test('it scaffolds the context and registers its provider', function () {
     expect(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php'))->toBeFile();
 
     expect(File::get($this->providers))->toContain('\App\ScaffoldFixture\ScaffoldFixtureServiceProvider::class,');
+});
+
+test('it names the route files the provider does not declare, on every run', function () {
+    // Keyed on what the run wrote, the reminder printed once, on the run that
+    // created the file, and never again. Paste one of the two lines and every
+    // later run reports success over an api.php that nothing loads.
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true, '--api' => true])
+        ->expectsOutputToContain('does not declare these route files')
+        ->assertSuccessful();
+
+    // This run writes nothing at all: both files are already there.
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--api' => true])
+        ->expectsOutputToContain('does not declare these route files')
+        ->assertSuccessful();
+});
+
+test('it names only the file that is missing from $routes', function () {
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true, '--api' => true])
+        ->assertSuccessful();
+
+    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    File::put($provider, str_replace(
+        "        'api' => [__DIR__.'/Shared/Infrastructure/Http/Routes/api.php'],\n",
+        '',
+        File::get($provider)
+    ));
+
+    // Read back rather than asserted through doesntExpectOutputToContain,
+    // which matches per write call and never sees what the components print.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--api' => true]);
+
+    expect(Artisan::output())
+        ->toContain("'api' => [__DIR__.'/Shared/Infrastructure/Http/Routes/api.php'],")
+        ->not->toContain("'web' => [__DIR__.'/Shared/Infrastructure/Http/Routes/web.php'],");
+});
+
+test('it says nothing once the provider declares them', function () {
+    // Created with both flags, so the stub declared both.
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true, '--api' => true])
+        ->assertSuccessful();
+
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true, '--api' => true]);
+
+    expect(Artisan::output())->not->toContain('does not declare');
 });
 
 test('it refuses a context whose provider name collides with the stub import', function () {

@@ -329,6 +329,12 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
 
         $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
+
+        // With its import. DatabaseSeeder declares the Database\Seeders
+        // namespace, which composer maps to two directories and neither holds
+        // this class, so the short name below resolves to something that does
+        // not exist and db:seed aborts on it.
+        $this->line("  <fg=gray>use {$class};</>");
         $this->line("  <fg=gray>{$this->aggregate}Seeder::class,  // in \$seeders, or \$fixtures if it is sample data</>");
     }
 
@@ -409,6 +415,12 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
             $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
 
+            // With its import. Route files declare no namespace and
+            // bootRoutes() applies none, so the short name below resolves to
+            // the global one: the route registers, appears in route:list, and
+            // 500s on the first request with "Target class does not exist".
+            $this->line("  <fg=gray>use {$snippet['controller']};</>");
+
             foreach ($snippet['lines'] as $line) {
                 $this->line("  <fg=gray>{$line}</>");
             }
@@ -419,6 +431,11 @@ final class MakeAggregateCommand extends ScaffoldCommand
             // is a 404.
             if (! $this->files->exists($file)) {
                 $this->line("  <fg=yellow>That file does not exist yet: create it and declare it in {$this->context}ServiceProvider::\$routes.</>");
+            } elseif (! $this->declaresRouteFile($kind)) {
+                // Skipped when the file exists, which is the state that most
+                // needs saying: created by an earlier run, never declared,
+                // loaded by nothing, and this hint printing routes into it.
+                $this->line("  <fg=yellow>{$this->context}ServiceProvider does not declare that file in \$routes, so nothing loads it.</>");
             }
         }
 
@@ -431,6 +448,19 @@ final class MakeAggregateCommand extends ScaffoldCommand
     }
 
     /**
+     * Whether the context's provider declares the route file for a group.
+     */
+    private function declaresRouteFile(string $kind): bool
+    {
+        $provider = SourceFile::at(app_path("{$this->context}/{$this->context}ServiceProvider.php"));
+
+        // Unreadable is not the same as declaring nothing, and a provider that
+        // does not parse has a louder problem than this hint.
+        return ! $provider->parsed()
+            || in_array("/Shared/Infrastructure/Http/Routes/{$kind}.php", $provider->propertyStrings('routes'), true);
+    }
+
+    /**
      * Reusing an aggregate name across contexts is normal in DDD, but the
      * table name is global: two create migrations for the same table abort
      * `migrate` on a fresh database. Returns the context that already owns it.
@@ -439,7 +469,17 @@ final class MakeAggregateCommand extends ScaffoldCommand
     {
         $mine = app_path("{$this->context}/{$this->plural}/Infrastructure/Persistence/Migrations");
 
-        foreach ($this->files->glob(app_path('*/*/Infrastructure/Persistence/Migrations')) ?: [] as $dir) {
+        // Both depths. Aggregates keep their migrations two segments in, and
+        // Shared keeps the framework's own one segment in: cache, jobs,
+        // failed_jobs, job_batches. Scanning only the first meant an aggregate
+        // called Job passed the guard and put a second create_jobs_table
+        // beside Shared's, which is exactly what this exists to stop.
+        $dirs = array_merge(
+            $this->files->glob(app_path('*/*/Infrastructure/Persistence/Migrations')) ?: [],
+            $this->files->glob(app_path('*/Infrastructure/Persistence/Migrations')) ?: [],
+        );
+
+        foreach ($dirs as $dir) {
             if ($dir === $mine) {
                 continue;
             }

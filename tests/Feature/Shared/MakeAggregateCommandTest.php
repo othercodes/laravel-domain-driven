@@ -674,7 +674,10 @@ test('it hints a distinct route for the api controller', function () {
         // URI is kept apart by the prefix group, the convention the rest of
         // the application already follows.
         ->expectsOutputToContain("Route::get('/widgets/{id}', [WidgetController::class, 'show'])->name('widgets.show');")
-        ->expectsOutputToContain("Route::prefix('api')->group(function () {")
+        // Guarded. This assertion pinned the guardless form, so every
+        // scaffolded aggregate shipped a public read endpoint and the suite
+        // called it correct.
+        ->expectsOutputToContain("Route::prefix('api')->middleware('auth:sanctum')->group(function () {")
         ->expectsOutputToContain("Route::get('/widgets/{id}', [WidgetController::class, 'show'])->name('api.widgets.show');")
         ->assertSuccessful();
 });

@@ -362,7 +362,14 @@ final class MakeAggregateCommand extends ScaffoldCommand
             'api' => [
                 'controller' => "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Http\\Controllers\\API\\{$this->aggregate}Controller",
                 'lines' => [
-                    "Route::prefix('api')->group(function () {",
+                    // Guarded, unlike the web snippet above. bootRoutes()
+                    // applies the api middleware group, which in Laravel is
+                    // SubstituteBindings and nothing else, so a pasted route
+                    // answers with no token. A web show page is often meant to
+                    // be public; an api one reached by id is not, and both the
+                    // stub this file was generated from and the context shipped
+                    // here guard it.
+                    "Route::prefix('api')->middleware('auth:sanctum')->group(function () {",
                     '    '.$route("api.{$slug}.show"),
                     '});',
                     "// the {$this->aggregate}Controller here is the one under Http\\Controllers\\API",

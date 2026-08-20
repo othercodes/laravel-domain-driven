@@ -10,6 +10,13 @@ test('reset password link screen can be rendered', function () {
     $response->assertStatus(200);
 });
 
+test('the login page carries the prop its link to this screen is gated on', function () {
+    // Login.vue renders the only link to /forgot-password behind
+    // v-if="canResetPassword". Nothing supplied it, so the screen above
+    // answered 200 and this test passed while the page had no way to reach it.
+    $this->get('/login')->assertInertia(fn ($page) => $page->where('canResetPassword', true));
+});
+
 test('reset password link can be requested', function () {
     Notification::fake();
 

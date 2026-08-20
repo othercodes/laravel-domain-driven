@@ -15,6 +15,7 @@ use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Laravel\Fortify\Fortify;
@@ -34,6 +35,9 @@ class IdentityAndAccessServiceProvider extends BoundedContextServiceProvider
     protected array $events = [
         UserEmailUpdated::class => SendUserEmailVerification::class,
     ];
+
+    /** @var array<int, class-string> */
+    protected array $commands = [];
 
     protected array $migrations = [
         __DIR__.'/Users/Infrastructure/Persistence/Migrations',
@@ -70,6 +74,12 @@ class IdentityAndAccessServiceProvider extends BoundedContextServiceProvider
         // Configure the routes.
         Fortify::loginView(fn () => Inertia::render('Auth/Login', [
             'status' => session('status'),
+            // Login.vue gates the only link to /forgot-password on this, so
+            // without it password reset is reachable by typing the URL and no
+            // other way. Asked of the router rather than of the feature flag:
+            // the link needs the route to exist, which is what enabling the
+            // feature produces.
+            'canResetPassword' => Route::has('password.request'),
         ]));
         Fortify::registerView(fn () => Inertia::render('Auth/Register'));
         Fortify::requestPasswordResetLinkView(fn () => Inertia::render('Auth/ForgotPassword', [

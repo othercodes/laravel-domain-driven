@@ -198,6 +198,45 @@ arch('service providers extend the bounded context base provider')
     ->toExtend('ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider');
 
 /*
+ * Every provider declares the same wiring arrays the stub does. A provider
+ * missing one does not fail loudly at boot: the generator finds no array to
+ * append to, throws away the binding and the migration path it had already
+ * built, and the aggregate ships with its repository unbound. Both providers
+ * here were missing a different one.
+ *
+ * Read from the stub so the two cannot drift, and $routes is left out of it
+ * because the stub emits that one conditionally.
+ */
+test('every service provider declares the wiring arrays the stub does', function () use ($contexts, $appPath) {
+    preg_match_all(
+        '/^\s*(?:public|protected)\s+array\s+\$(\w+)/m',
+        (string) file_get_contents(dirname($appPath).'/stubs/bounded-context.provider.stub'),
+        $matches
+    );
+
+    expect($matches[1])->not->toBeEmpty();
+
+    foreach ($contexts as $context) {
+        $provider = "{$appPath}/{$context}/{$context}ServiceProvider.php";
+
+        // Asked before reading it. A directory under app/ with no provider is
+        // reachable, a leaked test fixture being the usual way, and reading
+        // one that is not there yields an empty string that then reports every
+        // property as undeclared: the wrong problem, named confidently.
+        expect(is_file($provider))->toBeTrue("app/{$context} has no {$context}ServiceProvider.");
+
+        $source = (string) file_get_contents($provider);
+
+        foreach ($matches[1] as $property) {
+            expect($source)->toMatch(
+                '/(?:public|protected)\s+array\s+\$'.$property.'\s*=/',
+                "{$context}ServiceProvider does not declare \${$property}."
+            );
+        }
+    }
+});
+
+/*
 |--------------------------------------------------------------------------
 | Code Quality
 |--------------------------------------------------------------------------

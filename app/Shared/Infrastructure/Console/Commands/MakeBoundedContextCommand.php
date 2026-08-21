@@ -58,13 +58,13 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        if ($context === self::SHARED_CONTEXT) {
+        if ($this->refuses($context, self::SHARED_CONTEXT)) {
             $this->components->error('[Shared] already exists as the application foundation layer.');
 
             return self::FAILURE;
         }
 
-        if ($context === self::RESERVED_CONTEXT) {
+        if ($this->refuses($context, self::RESERVED_CONTEXT)) {
             $this->components->error("[{$context}] would produce a provider that extends itself, and it is registered on boot.");
             $this->components->bulletList([
                 'Pick another name for the context.',

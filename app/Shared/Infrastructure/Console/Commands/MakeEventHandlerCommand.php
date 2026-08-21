@@ -90,14 +90,21 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
 
         // Nothing here rewrites a file, so a handler that was already on disk
         // is whatever it was: asking for --queued cannot make it queued.
+        //
+        // Hedged, because what decides this is the write, not the handler: a
+        // re-run of the same --queued command reaches here over a handler the
+        // first run already made queued, and nothing here reads it back to
+        // find out. Saying it outright would be telling somebody to add what
+        // is already there.
+        //
+        // Fully qualified and no import, like every other line this report
+        // prints. This was the one place that printed a `use`, and pasting it
+        // into a handler that already imports ShouldQueue is a fatal in a
+        // class the provider lists in $events.
         if (! $written && $this->option('queued')) {
             $this->note(
-                "[{$name}] already existed and was left as it is. To queue it, add to {$this->relative($handler)}:",
-                [
-                    'use Illuminate\Contracts\Queue\ShouldQueue;',
-                    '',
-                    "final readonly class {$name} implements ShouldQueue",
-                ]
+                "[{$name}] already existed and was left as it is. If it is not queued already, change it in {$this->relative($handler)} to:",
+                ["final readonly class {$name} implements \\Illuminate\\Contracts\\Queue\\ShouldQueue"]
             );
         }
 

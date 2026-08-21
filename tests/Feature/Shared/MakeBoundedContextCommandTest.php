@@ -66,6 +66,23 @@ test('it refuses the one name whose provider would extend itself', function () {
         ->and(File::get($this->providers))->not->toContain('BoundedContext');
 });
 
+test('the names it refuses are refused however they are typed', function (string $name, string $reason) {
+    // PHP resolves class names without case, so `boundedcontext` studlies to
+    // `Boundedcontext` and still declares the same class as `BoundedContext`,
+    // and Str::studly leaves inner case alone. Compared with ===, both guards
+    // let an ordinary lowercase name straight through, and the first one ends
+    // with an unbootable provider registered in bootstrap/providers.php.
+    $this->artisan('ldd:make:bounded-context', ['name' => $name])
+        ->expectsOutputToContain($reason)
+        ->assertFailed();
+
+    expect(File::get($this->providers))->not->toContain('Boundedcontext');
+})->with([
+    'lowercase reserved' => ['boundedcontext', 'would produce a provider that extends itself'],
+    'mixed case reserved' => ['bOundedContext', 'would produce a provider that extends itself'],
+    'mixed case Shared' => ['sHared', 'already exists as the application foundation layer'],
+]);
+
 test('the provider stub imports nothing but the base provider', function () {
     // What makes one reserved name enough. A second import in the stub is a
     // second name that would collide, and it would be found the way the first

@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 
 /*
@@ -166,11 +167,30 @@ test('queued leaves a handler it did not write alone, and says so', function () 
     // this run did not write cannot make it queued.
     $this->artisan('ldd:make:event-handler', $args + ['--queued' => true])
         ->expectsOutputToContain('already existed and was left as it is')
-        ->expectsOutputToContain('implements ShouldQueue')
+        ->expectsOutputToContain('implements \\Illuminate\\Contracts\\Queue\\ShouldQueue')
         ->assertSuccessful();
 
     expect(File::get(app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php')))
         ->not->toContain('ShouldQueue');
+});
+
+test('the queued note never asks for an import, and never says the handler is not queued', function () {
+    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting', '--queued' => true];
+
+    $this->artisan('ldd:make:event-handler', $args)->assertSuccessful();
+
+    // The second run reaches the note over a handler the first run already
+    // made queued, and nothing reads it back to find that out. An import
+    // pasted into a file that already has it is a fatal, in a class the
+    // provider lists in $events.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:event-handler', $args);
+
+    expect(Artisan::output())
+        ->toContain('If it is not queued already')
+        ->toContain('implements \\Illuminate\\Contracts\\Queue\\ShouldQueue')
+        ->not->toContain('use Illuminate\\Contracts\\Queue\\ShouldQueue;');
 });
 
 test('it never overwrites a handler that exists', function () {

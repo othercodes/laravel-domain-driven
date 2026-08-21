@@ -106,6 +106,26 @@ abstract class ScaffoldCommand extends Command
     }
 
     /**
+     * Whether a name this command was given is a name it refuses.
+     *
+     * strcasecmp, not ===. Every name compared here ends up as a PHP class
+     * name or as a namespace segment, and PHP resolves both without case, so
+     * `boundedcontext` and `bOundedContext` declare the same class as
+     * `BoundedContext`. Str::studly only upper-cases the first letter of each
+     * word and leaves the rest as written, so the value arriving here keeps
+     * whatever case it was typed in.
+     *
+     * It lives on the base class rather than at each comparison because the
+     * same rule was answered once before, in a comment beside one call site,
+     * while the other call sites went on comparing with ===. An invariant kept
+     * by whoever remembers it is not kept.
+     */
+    protected function refuses(string $name, string $reserved): bool
+    {
+        return strcasecmp($name, $reserved) === 0;
+    }
+
+    /**
      * Resolves an existing aggregate from the names it was given.
      *
      * Prerequisites cascade and nothing is ever generated upwards: an event

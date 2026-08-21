@@ -82,7 +82,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        if ($this->context === self::SHARED_CONTEXT) {
+        if ($this->refuses($this->context, self::SHARED_CONTEXT)) {
             $this->components->error('[Shared] is the foundation layer, not a bounded context that can own aggregates.');
 
             return self::FAILURE;

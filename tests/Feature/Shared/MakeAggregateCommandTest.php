@@ -470,6 +470,20 @@ test('it refuses to scaffold into the Shared foundation layer', function () {
     expect(app_path('Shared/Widgets'))->not->toBeDirectory();
 });
 
+test('it refuses the Shared foundation layer however it is typed', function () {
+    // Str::studly leaves inner case alone, so `sHared` arrives as `SHared`,
+    // which is not === 'Shared'. On a case-insensitive filesystem the
+    // prerequisite check then finds app/SHared/SHaredServiceProvider.php and
+    // the aggregate is scaffolded straight into the foundation layer.
+    $this->artisan('ldd:make:aggregate', ['context' => 'sHared', 'name' => 'Widget'])
+        ->assertFailed();
+
+    // Asserted on the real directory, not on the spelling: app/SHared and
+    // app/Shared are the same directory on a case-insensitive filesystem,
+    // which is half of why this got through.
+    expect(app_path('Shared/Widgets'))->not->toBeDirectory();
+});
+
 test('it refuses a table name that is not a valid identifier', function () {
     $this->artisan('ldd:make:aggregate', [
         'context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true, '--table' => "odd'name",

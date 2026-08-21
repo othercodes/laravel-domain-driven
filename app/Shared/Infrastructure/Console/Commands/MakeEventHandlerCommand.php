@@ -88,6 +88,22 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
             ["\\{$eventClass}::class => \\{$handlerClass}::class,"]
         );
 
+        // $events is keyed by the event, and a second entry under a key that
+        // already has one leaves PHP keeping the last and dropping the first,
+        // silently: the handler that was there stops running and nothing says
+        // so. This repository ships one such array already, mapping
+        // UserEmailUpdated to SendUserEmailVerification, so a handler for that
+        // event reaches the case on the way out of the box.
+        //
+        // Said rather than checked. Which handler should survive is not a
+        // generator's decision, and the array form below is the answer that
+        // loses neither: ComplexHeart's bootEvents() listens for every entry
+        // when the value is a list.
+        $this->note(
+            "If {$event} is already a key in \$events, do not add a second one: PHP keeps only the last. List both instead:",
+            ["\\{$eventClass}::class => [/* the handler already there */, \\{$handlerClass}::class],"]
+        );
+
         // Nothing here rewrites a file, so a handler that was already on disk
         // is whatever it was: asking for --queued cannot make it queued.
         //

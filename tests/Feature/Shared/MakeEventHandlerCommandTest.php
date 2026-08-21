@@ -51,6 +51,30 @@ test('it creates the handler and says how to declare it', function () {
         ->and(php_parses($file))->toBeTrue();
 });
 
+test('the report says it did not read the files, and how a second handler is added', function () {
+    // The headings are imperatives about files this run neither read nor
+    // wrote, so the report says that once, over all of them. Without it a
+    // heading reads as a statement about the file it names.
+    //
+    // $events is the one where following the imperative blindly loses data:
+    // the key is the event, and PHP keeps only the last entry under it, so a
+    // second handler pasted in stops the first from running with nothing said
+    // anywhere. This repository ships one such mapping already.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:event-handler', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting',
+    ]);
+
+    expect(Artisan::output())
+        ->toContain('Nothing below was wired.')
+        ->toContain('neither read nor written by this run')
+        ->toContain('PHP keeps only the last')
+        // The form that loses neither handler. bootEvents() listens for every
+        // entry when the value is a list.
+        ->toContain('::class => [/* the handler already there */, \App\ScaffoldFixture\Widgets\Application\EventHandlers\NotifyAccounting::class],');
+});
+
 test('it leaves the provider exactly as it found it', function () {
     // The invariant the whole redesign rests on. A provider is loaded from
     // bootstrap/providers.php, so a bad edit here took down every request and

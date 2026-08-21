@@ -293,6 +293,21 @@ abstract class ScaffoldCommand extends Command
      */
     protected function report(): void
     {
+        if ($this->report === []) {
+            return;
+        }
+
+        // Said once, over everything below, because it is true of every block
+        // and always will be: these commands do not read the files they name.
+        // Without it each heading reads as a statement about that file, and
+        // the headings are written by whoever adds the next call site. An
+        // imperative that cannot be checked has to say so where it is printed,
+        // not in the head of the person who wrote it.
+        $this->newLine();
+        $this->line('  <options=bold>Nothing below was wired.</>');
+        $this->line('  <fg=gray>These files were neither read nor written by this run, so check each entry is</>');
+        $this->line('  <fg=gray>not already there before pasting it.</>');
+
         foreach ($this->report as $block) {
             $this->newLine();
             $this->line("  <options=bold>{$block['heading']}</>");

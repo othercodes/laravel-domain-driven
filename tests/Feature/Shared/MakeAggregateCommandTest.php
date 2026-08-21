@@ -215,6 +215,25 @@ test('it says nothing about creating a route file that is already there', functi
         ->not->toContain('That file does not exist yet');
 });
 
+test('the route hint is hedged and says what pasting it twice costs', function () {
+    // Nothing reads the route file any more, and RouteCollection keys by
+    // method and URI: a second copy of the canonical line replaces the first
+    // outright, so somebody who wrapped theirs in middleware loses it, with
+    // route:list showing one entry and no error anywhere.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true]);
+
+    expect(Artisan::output())
+        ->toContain('if it is not there already')
+        ->toContain('replaces the first, middleware and all')
+        // The provider is already there, so that run cannot render $routes
+        // into it. It prints the entry instead, and this must not say
+        // otherwise.
+        ->toContain('which that run prints for you')
+        ->not->toContain('which also declares it');
+});
+
 test('it does not advise creating a page that already exists', function () {
     File::ensureDirectoryExists($this->pages);
     File::put("{$this->pages}/Show.vue", '<template><div /></template>');
@@ -300,7 +319,7 @@ test('it says that nothing publishes the generated event', function () {
     // one the events pile up on the instance and vanish with it, which is the
     // silent failure these commands exist to prevent.
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
-        ->expectsOutputToContain('Nothing publishes WidgetCreated')
+        ->expectsOutputToContain('nothing publishes WidgetCreated')
         ->expectsOutputToContain('ldd:make:use-case ScaffoldFixture Widget CreateWidget --publishes')
         ->assertSuccessful();
 });

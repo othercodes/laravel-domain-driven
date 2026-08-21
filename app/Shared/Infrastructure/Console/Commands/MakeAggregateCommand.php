@@ -281,7 +281,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         }
 
         $this->note(
-            "Nothing publishes {$this->aggregate}Created until a use case does. Add one with:",
+            "Unless a use case already does it, nothing publishes {$this->aggregate}Created. Add one with:",
             [
                 "php artisan ldd:make:use-case {$this->context} {$this->aggregate} Create{$this->aggregate} --publishes",
                 '',
@@ -346,10 +346,21 @@ final class MakeAggregateCommand extends ScaffoldCommand
             if (! $this->files->exists($file)) {
                 $lines[] = '';
                 $lines[] = "// That file does not exist yet. Create it with: php artisan ldd:make:bounded-context {$this->context} --{$kind}";
-                $lines[] = "// which also declares it in {$this->context}ServiceProvider::\$routes.";
+                // Not "which also declares it": that run only renders $routes
+                // into a provider it writes itself, and this context already
+                // has one, so it will print the entry rather than add it.
+                $lines[] = "// and declare it in {$this->context}ServiceProvider::\$routes, which that run prints for you.";
             }
 
-            $this->note("Declare the {$kind} route in {$this->relative($file)}:", $lines);
+            // Hedged, and it has to be: nothing here reads the route file, and
+            // RouteCollection keys by method and URI, so a second copy of this
+            // line replaces the first outright. Somebody who wrapped theirs in
+            // middleware loses it, with route:list showing one entry and no
+            // error anywhere.
+            $lines[] = '';
+            $lines[] = '// A second route on the same method and URI replaces the first, middleware and all.';
+
+            $this->note("Declare the {$kind} route in {$this->relative($file)}, if it is not there already:", $lines);
         }
 
         $page = base_path("resources/templates/tailwindcss/js/Pages/{$this->plural}/Show.vue");

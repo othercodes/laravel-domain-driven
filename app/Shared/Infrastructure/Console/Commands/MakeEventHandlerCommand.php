@@ -84,7 +84,6 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
             "[{$name}]",
             app_path("{$target['context']}/{$target['context']}ServiceProvider.php"),
             'events',
-            'protected array $events = [',
             ["\\{$eventClass}::class => \\{$handlerClass}::class,"]
         );
 
@@ -122,10 +121,17 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         // prints. This was the one place that printed a `use`, and pasting it
         // into a handler that already imports ShouldQueue is a fatal in a
         // class the provider lists in $events.
+        //
+        // The clause, not the declaration it goes on. Printing
+        // `final readonly class X implements ...` was the last line in the
+        // report telling anybody to replace existing text rather than add to
+        // it, written without reading the file it names: a handler somebody
+        // had given another interface, or had taken readonly off to hold
+        // state, loses that when the line is followed.
         if (! $written && $this->option('queued')) {
             $this->note(
-                "[{$name}] already existed and was left as it is. If it is not queued already, change it in {$this->relative($handler)} to:",
-                ["final readonly class {$name} implements \\Illuminate\\Contracts\\Queue\\ShouldQueue"]
+                "[{$name}] already existed and was left as it is. If it is not queued already, add to its class declaration, beside anything it already implements:",
+                ['implements \\Illuminate\\Contracts\\Queue\\ShouldQueue']
             );
         }
 

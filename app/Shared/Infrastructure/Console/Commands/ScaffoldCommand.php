@@ -275,13 +275,21 @@ abstract class ScaffoldCommand extends Command
      * compile-time fatal. Fully qualified, a pasted line cannot collide with
      * anything.
      *
+     * The entries only, never the property declaration around them. Printing
+     * `public array $bindings = [` and its closing bracket made the block look
+     * like something to paste whole, and every file this points at declares
+     * the property already: the stub ships all four, DatabaseSeeder ships
+     * $seeders. Pasted as printed, that is a redeclared property, which is a
+     * fatal in a provider bootstrap/providers.php loads. The heading says
+     * which property, which is the part that cannot be read off the entry.
+     *
      * @param  list<string>  $entries
      */
-    protected function wire(string $subject, string $file, string $property, string $declaration, array $entries): void
+    protected function wire(string $subject, string $file, string $property, array $entries): void
     {
         $this->note(
             "Register {$subject} in {$this->relative($file)}, in \${$property}:",
-            [$declaration, ...array_map(fn (string $entry): string => '    '.$entry, $entries), '];']
+            $entries
         );
     }
 

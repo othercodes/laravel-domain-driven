@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 
 /*
  * The command writes into app/ and nowhere else, so every test starts from a
@@ -84,7 +85,7 @@ test('it never touches the context provider', function () {
         ->and(File::get($this->providers))->toBe($this->providersAfterFixture);
 });
 
-test('a name that collides with its own stub breaks only its own file', function (string $name, array $flags) {
+test('a name that collides with its own stub breaks only its own file', function (string $name, array $flags, string $collides) {
     // These used to be refused, by a guard that rendered every stub and
     // compared short names, and that guard cost six review rounds and never
     // ran out of cases it did not cover. What made refusing feel necessary was
@@ -97,19 +98,35 @@ test('a name that collides with its own stub breaks only its own file', function
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => $name] + $flags)
         ->assertSuccessful();
 
-    expect(php_parses($this->provider))->toBeTrue('the context provider does not parse')
-        ->and(php_parses($this->providers))->toBeTrue('bootstrap/providers.php does not parse');
+    $plural = Str::plural($name);
+
+    // The bound the decision actually accepts: that file, and no other. The
+    // provider and bootstrap/providers.php are pinned byte for byte by
+    // 'it never touches the context provider' and asserting them here says
+    // nothing about the aggregate at all.
+    expect(app_path("ScaffoldFixture/{$plural}/{$collides}"))->toBeFile()
+        ->and(php_parses(app_path("ScaffoldFixture/{$plural}/{$collides}")))->toBeFalse(
+            "{$collides} was expected not to compile; if the stubs changed, this row is stale."
+        );
+
+    // And the breakage stops there: the rest of the aggregate is written and
+    // compiles, which is what makes one bad file something you delete rather
+    // than a run to undo.
+    $contract = app_path("ScaffoldFixture/{$plural}/Domain/Contracts/{$name}Repository.php");
+
+    expect($contract)->toBeFile()
+        ->and(php_parses($contract))->toBeTrue();
 })->with([
     // {{ aggregate }}Resource lands on Illuminate's JsonResource.
-    'Json' => ['Json', ['--api' => true]],
+    'Json' => ['Json', ['--api' => true], 'Infrastructure/Http/Resources/JsonResource.php'],
     // {{ aggregate }}Factory lands on the shared AggregateFactory.
-    'Aggregate' => ['Aggregate', ['--factory' => true]],
+    'Aggregate' => ['Aggregate', ['--factory' => true], 'Domain/Factories/AggregateFactory.php'],
     // {{ aggregate }}Controller lands on the shared InertiaController.
-    'Inertia' => ['Inertia', ['--web' => true]],
+    'Inertia' => ['Inertia', ['--web' => true], 'Infrastructure/Http/Controllers/InertiaController.php'],
     // Added to the model after the stub is rendered, not by the stub.
-    'HasFactory' => ['HasFactory', ['--factory' => true]],
+    'HasFactory' => ['HasFactory', ['--factory' => true], 'Domain/HasFactory.php'],
     // Declared as written, under Eloquent's own import.
-    'Model' => ['Model', []],
+    'Model' => ['Model', [], 'Domain/Model.php'],
 ]);
 
 test('it says what to register in the provider, fully qualified', function () {
@@ -135,6 +152,29 @@ test('it says what to register in the provider, fully qualified', function () {
         ->toContain('in $commands')
         ->toContain('\App\ScaffoldFixture\Widgets\Infrastructure\Console\Commands\SyncWidgets::class,')
         ->not->toContain('use App\ScaffoldFixture\Widgets');
+});
+
+test('the report prints entries, never the property declaration around them', function () {
+    // Every file the report points at declares the property already: the stub
+    // ships all four, DatabaseSeeder ships $seeders. Printing
+    // `public array $bindings = [` and its closing bracket made the block read
+    // as something to paste whole, and the standing line does not save you:
+    // the entry genuinely is not there, so the check it asks for passes, and
+    // what lands is a redeclared property. That is a fatal in a provider
+    // bootstrap/providers.php loads.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget',
+        '--migration' => true, '--seeder' => true, '--command' => ['SyncWidgets'],
+    ]);
+
+    expect(Artisan::output())
+        ->toContain('in $bindings')
+        ->not->toContain('public array $bindings = [')
+        ->not->toContain('protected array $migrations = [')
+        ->not->toContain('protected array $commands = [')
+        ->not->toContain('private array $seeders = [');
 });
 
 test('it asks for a migrations path only when it generated a migration', function () {
@@ -311,7 +351,8 @@ test('the aggregate records its creation only with the events flag', function ()
 
     expect(app_path('ScaffoldFixture/Gadgets/Domain/Events/GadgetCreated.php'))->toBeFile();
     expect(File::get(app_path('ScaffoldFixture/Gadgets/Domain/Gadget.php')))
-        ->toContain('registerDomainEvent(GadgetCreated::new($gadget->id))');
+        ->toContain('registerDomainEvent(GadgetCreated::new($gadget->id))')
+        ->toContain('use App\ScaffoldFixture\Gadgets\Domain\Events\GadgetCreated;');
 });
 
 test('it says that nothing publishes the generated event', function () {
@@ -335,9 +376,15 @@ test('the factory is routed through the aggregate factory method', function () {
         ->not->toContain('newModel');
 
     // Laravel would not find a factory outside Database\Factories, so the
-    // model has to point at it explicitly.
+    // model has to point at it explicitly, and both names it now uses have to
+    // be imported. A missing import parses, so php_parses() cannot see it and
+    // the fixture is deleted before Pint or PHPStan ever look: without these
+    // two lines, dropping either import from writeCore() leaves the suite
+    // green and Widget::factory() fatal on the first call.
     expect(File::get(app_path('ScaffoldFixture/Widgets/Domain/Widget.php')))
-        ->toContain('protected static function newFactory(): WidgetFactory');
+        ->toContain('protected static function newFactory(): WidgetFactory')
+        ->toContain('use Illuminate\Database\Eloquent\Factories\HasFactory;')
+        ->toContain('use App\ScaffoldFixture\Widgets\Domain\Factories\WidgetFactory;');
 });
 
 test('the aggregate declares the contract its factory builds through', function () {
@@ -494,7 +541,12 @@ test('it refuses the Shared foundation layer however it is typed', function () {
     // which is not === 'Shared'. On a case-insensitive filesystem the
     // prerequisite check then finds app/SHared/SHaredServiceProvider.php and
     // the aggregate is scaffolded straight into the foundation layer.
+    // Anchored on the guard's own message. On a case-sensitive filesystem,
+    // which is what CI runs, the prerequisite check refuses SHared anyway for
+    // an unrelated reason, so assertFailed() alone stays green with the guard
+    // deleted and the regression only shows on a macOS checkout.
     $this->artisan('ldd:make:aggregate', ['context' => 'sHared', 'name' => 'Widget'])
+        ->expectsOutputToContain('[Shared] is the foundation layer')
         ->assertFailed();
 
     // Asserted on the real directory, not on the spelling: app/SHared and

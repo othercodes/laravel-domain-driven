@@ -72,6 +72,21 @@ test('it points at publishes when the aggregate records events', function () {
         ->assertSuccessful();
 });
 
+test('it still points at publishes over a use case that already exists', function () {
+    // The path ldd:make:aggregate --events sends you down: it prints the very
+    // command to run, and running it over a use case already on disk reported
+    // "left as it is" and said nothing, while the recorded events still went
+    // nowhere. What the domain holds decides this, not what this run wrote.
+    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget'];
+
+    $this->artisan('ldd:make:use-case', $args)->assertSuccessful();
+
+    $this->artisan('ldd:make:use-case', $args)
+        ->expectsOutputToContain('exists, skipped')
+        ->expectsOutputToContain('Widget records domain events.')
+        ->assertSuccessful();
+});
+
 test('it says nothing about publishing when publishes was asked for', function () {
     $this->artisan('ldd:make:use-case', [
         'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'CreateWidget', '--publishes' => true,

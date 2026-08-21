@@ -159,7 +159,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
             "the [{$this->aggregate}] repository",
             $file,
             'bindings',
-            'public array $bindings = [',
             ["\\{$contract}::class => \\{$eloquent}::class,"]
         );
 
@@ -170,7 +169,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
                 'the migrations directory',
                 $file,
                 'migrations',
-                'protected array $migrations = [',
                 ["__DIR__.'/{$this->plural}/Infrastructure/Persistence/Migrations',"]
             );
         }
@@ -185,7 +183,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
                 'the console commands',
                 $file,
                 'commands',
-                'protected array $commands = [',
                 array_map(fn (string $class): string => "\\{$class}::class,", $commands)
             );
         }
@@ -262,7 +259,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
             "[{$this->aggregate}Seeder]",
             app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php'),
             'seeders',
-            'private array $seeders = [',
             ["\\{$class}::class,  // or \$fixtures, if it is sample data"]
         );
     }

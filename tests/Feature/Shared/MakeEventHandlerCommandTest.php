@@ -223,7 +223,13 @@ test('the queued note never asks for an import, and never says the handler is no
     expect(Artisan::output())
         ->toContain('If it is not queued already')
         ->toContain('implements \\Illuminate\\Contracts\\Queue\\ShouldQueue')
-        ->not->toContain('use Illuminate\\Contracts\\Queue\\ShouldQueue;');
+        ->not->toContain('use Illuminate\\Contracts\\Queue\\ShouldQueue;')
+        // The clause, not the declaration it goes on. Printing the whole line
+        // is the one place the report told anybody to replace existing text,
+        // written without reading the file: a handler given another interface,
+        // or with readonly taken off to hold state, loses that when it is
+        // followed.
+        ->not->toContain('final readonly class NotifyAccounting implements');
 });
 
 test('it never overwrites a handler that exists', function () {

@@ -58,9 +58,12 @@ final class MakeUseCaseCommand extends ScaffoldCommand
         $this->components->info("Use case [{$name}] ".($written ? 'created' : 'left as it is')." in [{$target['context']}].");
 
         // Only worth saying when the aggregate has events to lose: what the
-        // domain already holds decides this, not the flag.
-        if ($written
-            && ! $this->option('publishes')
+        // domain already holds decides this, not the flag and not what this
+        // run wrote. Keyed on the write, the one path that reaches here was
+        // silent: ldd:make:aggregate --events prints the very command to run,
+        // and running it over a use case that already exists reports "left as
+        // it is" and says nothing, while the events still go nowhere.
+        if (! $this->option('publishes')
             && $this->files->isDirectory("{$target['path']}/Domain/Events")) {
             $this->note(
                 "{$target['aggregate']} records domain events. A use case that creates or changes one has to publish them:",

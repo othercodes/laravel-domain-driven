@@ -108,7 +108,6 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
                 'the route files',
                 $provider,
                 'routes',
-                'protected array $routes = [',
                 array_map(
                     fn (string $kind): string => "'{$kind}' => [__DIR__.'/Shared/Infrastructure/Http/Routes/{$kind}.php'],",
                     $routes

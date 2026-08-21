@@ -735,6 +735,102 @@ test('everything it generates parses', function () {
     }
 });
 
+/*
+ * The one test that samples the space the review rounds have been sampling one
+ * point at a time. Almost every defect these commands have had needed a second
+ * run over something already on disk, and the suite around this one tests the
+ * first run: 13 write sites in ldd:make:aggregate alone, each present or
+ * absent, times the provider, the route files and the aggregates beside it.
+ *
+ * So: the order a real project actually reaches, one flag at a time, across
+ * all four commands, and then the two things that have to hold whatever the
+ * order was.
+ */
+test('a realistic sequence of runs leaves a tree that compiles and files nobody touched', function () {
+    $ctx = ['context' => 'ScaffoldFixture'];
+    $agg = $ctx + ['aggregate' => 'Widget'];
+
+    $before = File::get($this->provider);
+    $providersBefore = File::get($this->providers);
+
+    $runs = [
+        // The aggregate grows an option at a time, which is what the commands
+        // are documented to support and where the model, the seeder and the
+        // migration all become files a later run must not rewrite.
+        ['ldd:make:aggregate', $ctx + ['name' => 'Widget']],
+        ['ldd:make:aggregate', $ctx + ['name' => 'Widget', '--events' => true]],
+        ['ldd:make:aggregate', $ctx + ['name' => 'Widget', '--seeder' => true]],
+        ['ldd:make:aggregate', $ctx + ['name' => 'Widget', '--seeder' => true, '--factory' => true]],
+        ['ldd:make:aggregate', $ctx + ['name' => 'Widget', '--all' => true, '--command' => ['SyncWidgets']]],
+        // A second aggregate in the same context, which is the common case the
+        // redesign made cost a paste.
+        ['ldd:make:aggregate', $ctx + ['name' => 'Gadget', '--all' => true]],
+        // Then the layers above it, each run twice: once creating, once over
+        // its own output.
+        ['ldd:make:use-case', $agg + ['name' => 'CreateWidget']],
+        ['ldd:make:use-case', $agg + ['name' => 'CreateWidget', '--publishes' => true]],
+        ['ldd:make:event-handler', $agg + ['name' => 'NotifyAccounting']],
+        ['ldd:make:event-handler', $agg + ['name' => 'NotifyAccounting', '--queued' => true]],
+        // And the context itself, gaining route files after everything else
+        // exists, which is the path ldd:make:aggregate --web prints.
+        ['ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true]],
+        ['ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--api' => true]],
+    ];
+
+    foreach ($runs as [$command, $arguments]) {
+        $this->artisan($command, $arguments)->assertSuccessful();
+    }
+
+    // Everything on disk still compiles. A stub that only breaks on a re-run,
+    // an import added twice, a body rendered against the wrong flags: all of
+    // it lands here and nowhere else, because the fixture is deleted in
+    // teardown and CI's Pint, PHPStan and arch legs never see it.
+    $files = File::allFiles(app_path('ScaffoldFixture'));
+
+    expect($files)->not->toBeEmpty();
+
+    foreach ($files as $file) {
+        expect(php_parses($file->getPathname()))
+            ->toBeTrue("{$file->getRelativePathname()} does not compile after the sequence");
+    }
+
+    // Loaded, not just parsed. A missing import parses perfectly well, which
+    // is why php_parses() could never see one, and PHP resolves the parent,
+    // the interfaces and the traits at class-load time: `use HasFactory;` with
+    // no import fails here and nowhere else in this suite. The fixture lives
+    // under app/, so composer's PSR-4 map for App\ autoloads it as-is.
+    $loads = [
+        'App\ScaffoldFixture\Widgets\Domain\Widget',
+        'App\ScaffoldFixture\Widgets\Domain\Factories\WidgetFactory',
+        'App\ScaffoldFixture\Widgets\Domain\Events\WidgetCreated',
+        'App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository',
+        'App\ScaffoldFixture\Widgets\Infrastructure\Persistence\Seeders\WidgetSeeder',
+        'App\ScaffoldFixture\Widgets\Infrastructure\Http\Controllers\WidgetController',
+        'App\ScaffoldFixture\Widgets\Application\CreateWidget',
+        'App\ScaffoldFixture\Widgets\Application\EventHandlers\NotifyAccounting',
+        // Gadget is the other shape, and the one that matters here: written
+        // with every flag in a single run, so its model carries the factory
+        // trait and the event registration. Widget grew a flag at a time, so
+        // its model was written bare and never gains either, which is what
+        // made this list miss a lost import the first time it was mutated.
+        'App\ScaffoldFixture\Gadgets\Domain\Gadget',
+        'App\ScaffoldFixture\Gadgets\Domain\Factories\GadgetFactory',
+        'App\ScaffoldFixture\Gadgets\Infrastructure\Http\Controllers\API\GadgetController',
+        'App\ScaffoldFixture\Gadgets\Infrastructure\Http\Resources\GadgetResource',
+    ];
+
+    foreach ($loads as $class) {
+        expect(class_exists($class))->toBeTrue("{$class} does not load after the sequence");
+    }
+
+    // And nothing outside what the runs created was touched. The provider is
+    // byte for byte what the first command wrote, and bootstrap/providers.php
+    // is what registering this context once left: addProviderToBootstrapFile
+    // is idempotent, so eleven more runs must not move it either.
+    expect(File::get($this->provider))->toBe($before)
+        ->and(File::get($this->providers))->toBe($providersBefore);
+});
+
 test('all generates every optional piece', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--all' => true])
         ->assertSuccessful();

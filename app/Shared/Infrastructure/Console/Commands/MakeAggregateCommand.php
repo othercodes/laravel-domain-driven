@@ -126,6 +126,15 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
+        if (($onDisk = $this->misspelling($this->plural, $this->context)) !== null) {
+            $this->components->error("The aggregate directory on disk is [{$onDisk}], not [{$this->plural}].");
+            $this->components->bulletList([
+                'Run it again with the aggregate name that pluralises to '.$onDisk.'.',
+            ]);
+
+            return self::FAILURE;
+        }
+
         $path = app_path("{$this->context}/{$this->plural}");
 
         // Running this again is how you add an option you skipped, so nothing

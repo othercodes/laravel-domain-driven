@@ -138,6 +138,60 @@ test('it stays quiet when the aggregate has no events to lose', function () {
         ->assertSuccessful();
 });
 
+test('the publish idiom it prints is the one the stub writes', function () {
+    // Printed as a shape of the idiom rather than the idiom, it does not work:
+    // the aggregate is __invoke's parameter, so a closure with no `use` leaves
+    // it undefined and saves null against a typed parameter, from inside an
+    // open transaction, and __invoke declares a return type the block has to
+    // satisfy.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:use-case', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',
+    ]);
+
+    expect(Artisan::output())
+        ->toContain('return \Illuminate\Support\Facades\DB::transaction(function () use ($widget): Widget {')
+        ->toContain('return $widget;');
+});
+
+test('it refuses an aggregate with no repository contract', function () {
+    // The aggregate root existing is not enough: both use-case stubs import
+    // the contract and type the constructor against it. This repository ships
+    // an aggregate without one, APITokens, so the run wrote a use case whose
+    // constructor names a class no file declares. It parses, so nothing caught
+    // it until the container resolved it.
+    $this->artisan('ldd:make:use-case', [
+        'context' => 'IdentityAndAccess', 'aggregate' => 'APIToken', 'name' => 'ArchiveToken',
+    ])
+        ->expectsOutputToContain('has no repository contract')
+        ->assertFailed();
+
+    expect(app_path('IdentityAndAccess/APITokens/Application/ArchiveToken.php'))->not->toBeFile();
+})->after(function () {
+    // Defensive: the command refuses before writing, and if it ever stops
+    // refusing this must not leave a file inside a real bounded context.
+    File::delete(app_path('IdentityAndAccess/APITokens/Application/ArchiveToken.php'));
+});
+
+test('it refuses an aggregate directory whose real spelling is different', function () {
+    // The same trap as the context, one level down: app/IdentityAndAccess/APITokens
+    // answers to ApiTokens on a case-insensitive filesystem, and ApiToken is
+    // what Str::studly makes of api-token.
+    $this->artisan('ldd:make:use-case', [
+        'context' => 'IdentityAndAccess', 'aggregate' => 'ApiToken', 'name' => 'IssueToken',
+    ])
+        ->expectsOutputToContain('The aggregate directory on disk is [APITokens]')
+        ->assertFailed();
+
+    expect(app_path('IdentityAndAccess/APITokens/Application/IssueToken.php'))->not->toBeFile();
+})->skip(
+    ! is_dir(dirname(__DIR__, 3).'/app/IdentityAndAccess/apitokens'),
+    'the filesystem is case-sensitive, so the name cannot collide'
+)->after(function () {
+    File::delete(app_path('IdentityAndAccess/APITokens/Application/IssueToken.php'));
+});
+
 test('it refuses the plural of an aggregate that exists', function () {
     // Str::plural leaves a plural alone, so the directory check passed for an
     // aggregate that does not exist and the use case was generated against

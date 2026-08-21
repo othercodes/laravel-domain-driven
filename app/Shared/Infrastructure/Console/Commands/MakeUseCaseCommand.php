@@ -40,6 +40,23 @@ final class MakeUseCaseCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
+        // The aggregate root existing is not enough: both use-case stubs import
+        // the repository contract and type the constructor against it, and an
+        // aggregate can be on disk without one. This repository ships such an
+        // aggregate, APITokens, which has a model and a migration and nothing
+        // else. Checked here rather than in target(), which ldd:make:event-handler
+        // shares and whose stub imports only the event.
+        $contract = "{$target['path']}/Domain/Contracts/{$target['aggregate']}Repository.php";
+
+        if (! $this->files->exists($contract)) {
+            $this->components->error("[{$target['aggregate']}] has no repository contract, and a use case is typed against one.");
+            $this->components->bulletList([
+                "Create it with: php artisan ldd:make:aggregate {$target['context']} {$target['aggregate']}",
+            ]);
+
+            return self::FAILURE;
+        }
+
         $variable = Str::camel($target['aggregate']);
         $stub = $this->option('publishes') ? 'use-case.publishes' : 'use-case';
 
@@ -70,9 +87,17 @@ final class MakeUseCaseCommand extends ScaffoldCommand
                 // In full, and inside the transaction: a listener that throws
                 // must not leave the aggregate persisted, and neither name is
                 // imported by a use case this run did not write.
-                '\Illuminate\Support\Facades\DB::transaction(function () {',
+                // Captured and returned, which is what makes it the idiom
+                // rather than a shape of it: the aggregate is __invoke's
+                // parameter, so a closure without `use` leaves it undefined
+                // and saves null, and __invoke declares a return type the
+                // block has to satisfy. stubs/use-case.publishes.stub writes
+                // exactly this, and the line below claims as much.
+                "return \Illuminate\Support\Facades\DB::transaction(function () use (\${$variable}): {$target['aggregate']} {",
                 "    \$this->repository->save(\${$variable});",
                 "    \${$variable}->publishDomainEvents(\$this->eventBus);",
+                '',
+                "    return \${$variable};",
                 '});',
             ];
 

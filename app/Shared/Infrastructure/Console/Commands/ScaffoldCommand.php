@@ -140,17 +140,23 @@ abstract class ScaffoldCommand extends Command
      * Returns null when there is nothing on disk to disagree with, so a
      * context being created for the first time is unaffected.
      */
-    protected function misspelling(string $context): ?string
+    protected function misspelling(string $name, string $parent = ''): ?string
     {
+        $in = $parent === '' ? app_path() : app_path($parent);
+
+        if (! $this->files->isDirectory($in)) {
+            return null;
+        }
+
         // Read from a directory scan, not from realpath(): on a bind mount the
         // kernel resolves the path as given and hands back the spelling it was
         // asked for, so realpath() agrees with whatever was typed. Only
-        // listing app/ gives the name as it is actually stored.
-        foreach ($this->files->directories(app_path()) as $dir) {
+        // listing the parent gives the name as it is actually stored.
+        foreach ($this->files->directories($in) as $dir) {
             $onDisk = basename($dir);
 
-            if (strcasecmp($onDisk, $context) === 0) {
-                return $onDisk === $context ? null : $onDisk;
+            if (strcasecmp($onDisk, $name) === 0) {
+                return $onDisk === $name ? null : $onDisk;
             }
         }
 
@@ -200,6 +206,21 @@ abstract class ScaffoldCommand extends Command
         }
 
         $plural = Str::plural($aggregate);
+
+        // The same trap one level down. app/IdentityAndAccess/APITokens
+        // answers to ApiTokens on a case-insensitive filesystem, and `ApiToken`
+        // is what Str::studly makes of api-token, so the run would write into
+        // the real directory under a namespace PSR-4 cannot resolve anywhere
+        // else.
+        if (($onDisk = $this->misspelling($plural, $context)) !== null) {
+            $this->components->error("The aggregate directory on disk is [{$onDisk}], not [{$plural}].");
+            $this->components->bulletList([
+                'Run it again with the aggregate name that pluralises to '.$onDisk.'.',
+            ]);
+
+            return null;
+        }
+
         $path = app_path("{$context}/{$plural}");
 
         // The aggregate root, not the directory around it. Str::plural leaves

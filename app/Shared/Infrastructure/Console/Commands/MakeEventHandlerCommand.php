@@ -52,6 +52,27 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         // A handler needs an event the way an aggregate needs a context.
         // Generating the event from here would be creating upwards: it belongs
         // to the aggregate, and the command that owns the aggregate makes it.
+        // The same casing trap as the context and the aggregate directory, and
+        // the last name still matched by a bare exists(): the handler stub
+        // imports Domain\Events\{$event} by the spelling given, so a run that
+        // found the file through a case-insensitive filesystem writes an
+        // import that resolves nowhere else.
+        $events = array_map(
+            fn (string $file): string => basename($file, '.php'),
+            $this->files->glob("{$target['path']}/Domain/Events/*.php") ?: []
+        );
+
+        foreach ($events as $onDisk) {
+            if (strcasecmp($onDisk, $event) === 0 && $onDisk !== $event) {
+                $this->components->error("The event on disk is [{$onDisk}], not [{$event}].");
+                $this->components->bulletList([
+                    "Run it again with: --event={$onDisk}",
+                ]);
+
+                return self::FAILURE;
+            }
+        }
+
         if (! $this->files->exists("{$target['path']}/Domain/Events/{$event}.php")) {
             $this->components->error("[{$event}] does not exist in [{$target['aggregate']}].");
             $this->components->bulletList([

@@ -54,6 +54,8 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
     private string $table;
 
+    private bool $hasFactory;
+
     public function handle(): int
     {
         $context = $this->identifier((string) $this->argument('context'), 'bounded context');
@@ -110,7 +112,20 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        // 6. Asked whatever the flags say. The collision is a property of the
+        if (($onDisk = $this->misspelling($this->plural, $this->context)) !== null) {
+            $this->components->error("The aggregate directory on disk is [{$onDisk}], not [{$this->plural}].");
+            $this->components->bulletList([
+                'Run it again with the aggregate name that pluralises to '.$onDisk.'.',
+            ]);
+
+            return self::FAILURE;
+        }
+
+        // The spelling guard runs first: compared as strings, a mis-cased
+        // aggregate's own migrations directory reads as another aggregate's,
+        // so the run was refused for a collision with itself and told to
+        // rename its table.
+        // Asked whatever the flags say. The collision is a property of the
         // table, not of this run: with --migration it is fatal, because two
         // create migrations abort migrate on a fresh database, and without it
         // the aggregate quietly shares a table another context owns, which is
@@ -126,16 +141,27 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        if (($onDisk = $this->misspelling($this->plural, $this->context)) !== null) {
-            $this->components->error("The aggregate directory on disk is [{$onDisk}], not [{$this->plural}].");
+        $path = app_path("{$this->context}/{$this->plural}");
+
+        // One aggregate root per directory. Str::plural leaves a plural alone,
+        // so `ldd:make:aggregate IdentityAndAccess Users` resolves to the
+        // shipped Users aggregate and used to drop a second root, contract and
+        // repository beside User, mapped to the same table with none of its
+        // casts. target() sends you here by name when a use case is asked for
+        // with the plural, which is the name ls shows.
+        //
+        // Globbed rather than keyed on the directory existing, so re-running to
+        // add a flag you skipped still works.
+        $roots = array_map('basename', $this->files->glob("{$path}/Domain/*.php") ?: []);
+
+        if ($roots !== [] && ! in_array("{$this->aggregate}.php", $roots, true)) {
+            $this->components->error("[{$this->plural}] already holds the aggregate [".basename($roots[0], '.php').'].');
             $this->components->bulletList([
-                'Run it again with the aggregate name that pluralises to '.$onDisk.'.',
+                'One aggregate root per directory: pick a name that pluralises differently.',
             ]);
 
             return self::FAILURE;
         }
-
-        $path = app_path("{$this->context}/{$this->plural}");
 
         // Running this again is how you add an option you skipped, so nothing
         // already on disk is rewritten: the model may have been worked on and
@@ -147,6 +173,12 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // commented placeholder. db:seed then reports the seeder as run and
         // inserts nothing.
         $seederExisted = $this->files->exists("{$path}/Infrastructure/Persistence/Seeders/{$this->aggregate}Seeder.php");
+
+        // And the body follows the factory on disk, not the flag this run
+        // carries: --factory first and --seeder second rendered the dead
+        // placeholder over a factory that was right there.
+        $this->hasFactory = $this->wants('factory')
+            || $this->files->exists("{$path}/Domain/Factories/{$this->aggregate}Factory.php");
 
         $this->writeCore($path);
         $this->writeOptional($path);
@@ -436,9 +468,13 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // failed_jobs, job_batches. Scanning only the first meant an aggregate
         // called Job passed the guard and put a second create_jobs_table
         // beside Shared's, which is exactly what this exists to stop.
+        // database/migrations too: BaseCommand::getMigrationPaths() always
+        // merges it with whatever the providers register, so a table created
+        // there by Laravel's own make:migration collides just as hard.
         $dirs = array_merge(
             $this->files->glob(app_path('*/*/Infrastructure/Persistence/Migrations')) ?: [],
             $this->files->glob(app_path('*/Infrastructure/Persistence/Migrations')) ?: [],
+            [database_path('migrations')],
         );
 
         foreach ($dirs as $dir) {
@@ -512,7 +548,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
             // was actually asked for rather than assuming the happy path.
             $seeder = $this->stub('aggregate.seeder', $this->replacements([
                 '{{ seederUses }}' => '',
-                '{{ seederBody }}' => $this->wants('factory')
+                '{{ seederBody }}' => $this->hasFactory
                     ? "        {$this->aggregate}::factory()->count(10)->create();\n"
                     // Fully qualified, like everything else printed for a file
                     // whose imports are not ours: without --factory the seeder
@@ -522,7 +558,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
                     : "        // Nothing here yet. Generate a factory with --factory, then:\n        // \\App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate}::factory()->count(10)->create();\n",
             ]));
 
-            if ($this->wants('factory')) {
+            if ($this->hasFactory) {
                 $seeder = $this->withImports($seeder, "App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate}");
             }
 

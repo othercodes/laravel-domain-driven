@@ -17,12 +17,16 @@ beforeEach(function () {
         'app/ScaffoldFixture already exists; refusing to run so the teardown cannot delete it.'
     );
 
+    // Set before anything can fail: a fixture half-built by a run that threw
+    // is still a bounded context left in app/, and every later run of the
+    // suite then refuses at the guard above.
+    $this->createdFixture = true;
+
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
         ->assertSuccessful();
 
     $this->provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
-    $this->createdFixture = true;
 });
 
 afterEach(function () {
@@ -160,6 +164,22 @@ test('it refuses an event the aggregate does not have', function () {
 
     expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers'))->not->toBeDirectory();
 });
+
+test('it refuses a mis-cased event name', function () {
+    // The handler stub imports Domain\Events\{event} by the spelling given, so
+    // a run that found the file through a case-insensitive filesystem writes
+    // an import that resolves nowhere else.
+    $this->artisan('ldd:make:event-handler', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'OnCreated', '--event' => 'widgetcreated',
+    ])
+        ->expectsOutputToContain('The event on disk is [WidgetCreated]')
+        ->assertFailed();
+
+    expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers/OnCreated.php'))->not->toBeFile();
+})->skip(
+    ! is_dir(dirname(__DIR__, 3).'/app/identityandaccess'),
+    'the filesystem is case-sensitive, so the name cannot collide'
+);
 
 test('it refuses an aggregate that does not exist', function () {
     $this->artisan('ldd:make:event-handler', [

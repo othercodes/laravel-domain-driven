@@ -30,9 +30,13 @@ beforeEach(function () {
         "{$this->pages} already exists; refusing to run so the teardown cannot delete it."
     );
 
+    // Set before anything can fail: a fixture half-built by a run that threw
+    // is still a bounded context left in app/, and every later run of the
+    // suite then refuses at the guard above.
+    $this->createdFixture = true;
+
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
     $this->provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
-    $this->createdFixture = true;
 
     // Read after the fixture context is created: ldd:make:bounded-context is
     // the one command that registers anything, and it rewrites this file.
@@ -635,6 +639,69 @@ test('it refuses a context whose real spelling on disk is different', function (
     ! is_dir(dirname(__DIR__, 3).'/app/identityandaccess'),
     'the filesystem is case-sensitive, so the name cannot collide'
 );
+
+test('it refuses to put a second aggregate root in one directory', function () {
+    // Str::plural leaves a plural alone, so this resolves to the Widgets
+    // directory Widget already owns and used to drop a second root, contract
+    // and repository beside it, mapped to the same table. target() sends you
+    // here by name when a use case is asked for with the plural.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widgets'])
+        ->expectsOutputToContain('already holds the aggregate [Widget]')
+        ->assertFailed();
+
+    expect(app_path('ScaffoldFixture/Widgets/Domain/Widgets.php'))->not->toBeFile();
+});
+
+test('a mis-cased aggregate is told the spelling, not blamed for a table collision', function () {
+    // Compared as strings, the aggregate's own migrations directory reads as
+    // another aggregate's, so the run was refused for colliding with itself
+    // and advised to rename its table. The guard that says what is actually
+    // wrong ran after it.
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'IdentityAndAccess', 'name' => 'ApiToken', '--migration' => true,
+    ])
+        ->expectsOutputToContain('The aggregate directory on disk is [APITokens]')
+        ->assertFailed();
+})->skip(
+    ! is_dir(dirname(__DIR__, 3).'/app/IdentityAndAccess/apitokens'),
+    'the filesystem is case-sensitive, so the name cannot collide'
+);
+
+test('it refuses a table database/migrations already creates', function () {
+    // migrate always merges database_path('migrations') with whatever the
+    // providers register, so a table Laravel's own make:migration created
+    // there collides just as hard, and the guard never looked.
+    $dir = database_path('migrations');
+    $file = "{$dir}/2026_01_01_000000_create_widgets_table.php";
+
+    File::ensureDirectoryExists($dir);
+    File::put($file, "<?php\n");
+
+    try {
+        $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true])
+            ->expectsOutputToContain('database/migrations')
+            ->assertFailed();
+    } finally {
+        File::delete($file);
+    }
+});
+
+test('the seeder body follows the factory on disk, not the flag', function () {
+    // --factory first and --seeder second rendered the dead placeholder over a
+    // factory that was right there, and db:seed then reports the seeder as run
+    // while inserting nothing.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--factory' => true])
+        ->assertSuccessful();
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true])
+        ->assertSuccessful();
+
+    expect(File::get(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Seeders/WidgetSeeder.php')))
+        ->toContain("\n        Widget::factory()->count(10)->create();")
+        ->toContain('use App\ScaffoldFixture\Widgets\Domain\Widget;');
+});
 
 test('it refuses a table name that is not a valid identifier', function () {
     $this->artisan('ldd:make:aggregate', [

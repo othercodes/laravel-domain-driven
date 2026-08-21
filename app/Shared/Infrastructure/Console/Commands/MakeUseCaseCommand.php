@@ -57,6 +57,27 @@ final class MakeUseCaseCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
+        // --publishes writes a body that calls Aggregate::new() and then
+        // publishDomainEvents() on the result. An aggregate root can be on
+        // disk without either: this repository ships APIToken, which extends
+        // Sanctum's PersonalAccessToken and declares only $table. The file
+        // parses and the class loads, so nothing sees it until the first call
+        // throws inside an open transaction.
+        //
+        // Not offered as something ldd:make:aggregate fixes: it never rewrites
+        // a root that exists.
+        $root = "App\\{$target['context']}\\{$target['plural']}\\Domain\\{$target['aggregate']}";
+
+        if ($this->option('publishes')
+            && (! method_exists($root, 'new') || ! method_exists($root, 'publishDomainEvents'))) {
+            $this->components->error("[{$target['aggregate']}] cannot publish domain events, and --publishes writes a use case that asks it to.");
+            $this->components->bulletList([
+                'Add App\Shared\Domain\HasDomainEvents to it, and a static new() returning static.',
+            ]);
+
+            return self::FAILURE;
+        }
+
         $variable = Str::camel($target['aggregate']);
         $stub = $this->option('publishes') ? 'use-case.publishes' : 'use-case';
 

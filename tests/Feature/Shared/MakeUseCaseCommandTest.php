@@ -17,11 +17,14 @@ beforeEach(function () {
         'app/ScaffoldFixture already exists; refusing to run so the teardown cannot delete it.'
     );
 
+    // Set before anything can fail: a fixture half-built by a run that threw
+    // is still a bounded context left in app/, and every later run of the
+    // suite then refuses at the guard above.
+    $this->createdFixture = true;
+
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
         ->assertSuccessful();
-
-    $this->createdFixture = true;
 });
 
 afterEach(function () {
@@ -190,6 +193,42 @@ test('it refuses an aggregate directory whose real spelling is different', funct
     'the filesystem is case-sensitive, so the name cannot collide'
 )->after(function () {
     File::delete(app_path('IdentityAndAccess/APITokens/Application/IssueToken.php'));
+});
+
+test('publishes is refused on a root that cannot publish', function () {
+    // --publishes writes a body calling Aggregate::new() and then
+    // publishDomainEvents() on the result. An aggregate root can be on disk
+    // answering neither: this repository ships one, APIToken, which extends
+    // Sanctum's PersonalAccessToken and declares only $table. The generated
+    // file parses and the class loads, so the first call threw inside an open
+    // transaction and nothing saw it earlier.
+    //
+    // Reproduced on a name of this suite's own, both to keep it out of a real
+    // bounded context and because method_exists() autoloads: a name another
+    // test has already loaded would answer from the class in memory, not from
+    // the file this one just wrote.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Gizmo'])
+        ->assertSuccessful();
+
+    $model = app_path('ScaffoldFixture/Gizmos/Domain/Gizmo.php');
+
+    File::put($model, str_replace(
+        ["use App\Shared\Domain\HasDomainEvents;\n", "    use HasDomainEvents;\n"],
+        '',
+        File::get($model)
+    ));
+
+    // Asserted, not assumed: a str_replace that matched nothing would leave
+    // this test passing against a model that can publish perfectly well.
+    expect(File::get($model))->not->toContain('HasDomainEvents');
+
+    $this->artisan('ldd:make:use-case', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Gizmo', 'name' => 'CreateGizmo', '--publishes' => true,
+    ])
+        ->expectsOutputToContain('cannot publish domain events')
+        ->assertFailed();
+
+    expect(app_path('ScaffoldFixture/Gizmos/Application/CreateGizmo.php'))->not->toBeFile();
 });
 
 test('it refuses the plural of an aggregate that exists', function () {

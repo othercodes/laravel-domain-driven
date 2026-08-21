@@ -63,18 +63,33 @@ final class MakeUseCaseCommand extends ScaffoldCommand
         // silent: ldd:make:aggregate --events prints the very command to run,
         // and running it over a use case that already exists reports "left as
         // it is" and says nothing, while the events still go nowhere.
-        if (! $this->option('publishes')
-            && $this->files->isDirectory("{$target['path']}/Domain/Events")) {
-            $this->note(
-                "{$target['aggregate']} records domain events. A use case that creates or changes one has to publish them:",
-                [
-                    "\$this->repository->save(\${$variable});",
-                    "\${$variable}->publishDomainEvents(\$this->eventBus);  // ComplexHeart\\Domain\\Contracts\\Events\\EventBus",
-                    '// both inside DB::transaction, so a failing listener cannot leave the aggregate persisted',
-                    '',
-                    '// --publishes scaffolds exactly this.',
-                ]
-            );
+        if ($this->files->isDirectory("{$target['path']}/Domain/Events")) {
+            $lines = [
+                '// add to the constructor: private \ComplexHeart\Domain\Contracts\Events\EventBus $eventBus,',
+                '',
+                // In full, and inside the transaction: a listener that throws
+                // must not leave the aggregate persisted, and neither name is
+                // imported by a use case this run did not write.
+                '\Illuminate\Support\Facades\DB::transaction(function () {',
+                "    \$this->repository->save(\${$variable});",
+                "    \${$variable}->publishDomainEvents(\$this->eventBus);",
+                '});',
+            ];
+
+            if (! $this->option('publishes')) {
+                $this->note(
+                    "{$target['aggregate']} records domain events. A use case that creates or changes one has to publish them:",
+                    [...$lines, '', '// --publishes scaffolds exactly this.']
+                );
+            } elseif (! $written) {
+                // The flag was passed and the file was already there, so the
+                // rendered stub was discarded. Passing the flag the tool asked
+                // for used to leave you with less guidance than omitting it.
+                $this->note(
+                    "[{$name}] already existed and was left as it is, so --publishes changed nothing. If it does not already publish:",
+                    $lines
+                );
+            }
         }
 
         $this->report();

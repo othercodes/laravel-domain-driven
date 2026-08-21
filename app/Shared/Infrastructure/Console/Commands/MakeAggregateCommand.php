@@ -101,7 +101,23 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        if ($this->wants('migration') && ($owner = $this->tableOwnedElsewhere()) !== null) {
+        if (($onDisk = $this->misspelling($this->context)) !== null) {
+            $this->components->error("The bounded context on disk is [{$onDisk}], not [{$this->context}].");
+            $this->components->bulletList([
+                "Run it again as: {$onDisk}",
+            ]);
+
+            return self::FAILURE;
+        }
+
+        // 6. Asked whatever the flags say. The collision is a property of the
+        // table, not of this run: with --migration it is fatal, because two
+        // create migrations abort migrate on a fresh database, and without it
+        // the aggregate quietly shares a table another context owns, which is
+        // the quieter half and used to go unmentioned.
+        $owner = $this->tableOwnedElsewhere();
+
+        if ($owner !== null && $this->wants('migration')) {
             $this->components->error("Table [{$this->table}] already has a create migration in [{$owner}].");
             $this->components->bulletList([
                 'Pass a different name with: --table='.Str::snake($this->context)."_{$this->table}",
@@ -117,6 +133,12 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // the migration may already have been applied.
         $modelExisted = $this->files->exists("{$path}/Domain/{$this->aggregate}.php");
 
+        // Nothing rewrites a seeder that is already there, so adding --factory
+        // later renders the live body and throws it away, leaving the
+        // commented placeholder. db:seed then reports the seeder as run and
+        // inserts nothing.
+        $seederExisted = $this->files->exists("{$path}/Infrastructure/Persistence/Seeders/{$this->aggregate}Seeder.php");
+
         $this->writeCore($path);
         $this->writeOptional($path);
 
@@ -130,7 +152,14 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         $this->reportProvider($delegated['commands']);
         $this->reportModel($modelExisted);
-        $this->reportSeeder();
+        $this->reportSeeder($seederExisted);
+
+        if ($owner !== null) {
+            $this->note(
+                "Table [{$this->table}] already has a create migration in {$owner}.",
+                ['// This aggregate would share it. Pass --table='.Str::snake($this->context)."_{$this->table} if that is not what you meant."]
+            );
+        }
         $this->reportEvents();
         $this->reportRoutes();
 
@@ -221,11 +250,14 @@ final class MakeAggregateCommand extends ScaffoldCommand
             // generated for it does not type check against AggregateFactory's
             // template. Both halves only work together: the interface returns
             // static, so self would not satisfy it.
-            $lines[] = 'and, if it does not already: implements \App\Shared\Domain\BuildsFromAttributes,';
+            $lines[] = 'and, in its implements list if it is not there: \App\Shared\Domain\BuildsFromAttributes';
             $lines[] = 'with new() returning static and building with new static(...)';
         }
 
-        if ($this->wants('migration')) {
+        // Also on --table alone, which otherwise does nothing at all here: the
+        // model is not rewritten and no migration is generated, so the run
+        // accepts the option and discards it without a word.
+        if ($this->wants('migration') || $this->option('table')) {
             // The model is never rewritten, so a migration for a table it does
             // not declare creates one nothing reads, beside the one it uses.
             $lines[] = "and check it declares: protected \$table = '{$this->table}';";
@@ -247,7 +279,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * another seeder depends on has to come first, and sample data has no
      * business running in production at all.
      */
-    private function reportSeeder(): void
+    private function reportSeeder(bool $seederExisted): void
     {
         if (! $this->wants('seeder')) {
             return;
@@ -255,11 +287,21 @@ final class MakeAggregateCommand extends ScaffoldCommand
 
         $class = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\Seeders\\{$this->aggregate}Seeder";
 
+        $entries = ["\\{$class}::class,  // or \$fixtures, if it is sample data"];
+
+        // Registering a seeder whose body is still the placeholder is worse
+        // than not registering it: db:seed lists it as run and inserts nothing.
+        if ($seederExisted && $this->wants('factory')) {
+            $entries[] = '';
+            $entries[] = "// {$this->aggregate}Seeder was already on disk and was left as it is: check its run()";
+            $entries[] = '// is not still the commented-out placeholder before you register it.';
+        }
+
         $this->wire(
             "[{$this->aggregate}Seeder]",
             app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php'),
             'seeders',
-            ["\\{$class}::class,  // or \$fixtures, if it is sample data"]
+            $entries
         );
     }
 
@@ -342,11 +384,16 @@ final class MakeAggregateCommand extends ScaffoldCommand
             if (! $this->files->exists($file)) {
                 $lines[] = '';
                 $lines[] = "// That file does not exist yet. Create it with: php artisan ldd:make:bounded-context {$this->context} --{$kind}";
-                // Not "which also declares it": that run only renders $routes
-                // into a provider it writes itself, and this context already
-                // has one, so it will print the entry rather than add it.
-                $lines[] = "// and declare it in {$this->context}ServiceProvider::\$routes, which that run prints for you.";
             }
+
+            // Outside that branch. A route file that exists and is not
+            // declared is the state with no symptom but a 404, and keying this
+            // on the file being absent meant the one run that could say so
+            // said nothing. Not "which also declares it" either: that command
+            // renders $routes only into a provider it writes itself.
+            $lines[] = '';
+            $lines[] = "// If {$this->context}ServiceProvider::\$routes does not already name that file,";
+            $lines[] = '// nothing loads it: declare it there, and that run prints the entry for you.';
 
             // Hedged, and it has to be: nothing here reads the route file, and
             // RouteCollection keys by method and URI, so a second copy of this
@@ -458,7 +505,12 @@ final class MakeAggregateCommand extends ScaffoldCommand
                 '{{ seederUses }}' => '',
                 '{{ seederBody }}' => $this->wants('factory')
                     ? "        {$this->aggregate}::factory()->count(10)->create();\n"
-                    : "        // Nothing here yet. Generate a factory with --factory, then:\n        // {$this->aggregate}::factory()->count(10)->create();\n",
+                    // Fully qualified, like everything else printed for a file
+                    // whose imports are not ours: without --factory the seeder
+                    // imports only Illuminate's Seeder, so uncommenting the
+                    // short name resolves inside the seeder's own namespace and
+                    // fatals db:seed.
+                    : "        // Nothing here yet. Generate a factory with --factory, then:\n        // \\App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate}::factory()->count(10)->create();\n",
             ]));
 
             if ($this->wants('factory')) {

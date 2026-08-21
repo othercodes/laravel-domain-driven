@@ -80,11 +80,22 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         $handlerClass = "App\\{$target['context']}\\{$target['plural']}\\Application\\EventHandlers\\{$name}";
         $eventClass = "App\\{$target['context']}\\{$target['plural']}\\Domain\\Events\\{$event}";
 
+        $entries = ["\\{$eventClass}::class => \\{$handlerClass}::class,"];
+
+        // A handler that was already on disk was written against whatever
+        // event it was written against, and nothing here reads its handle()
+        // signature. Mapping it to this event compiles and then fails at
+        // dispatch with a type error, or worse, silently does the wrong thing.
+        if (! $written) {
+            $entries[] = '';
+            $entries[] = "// [{$name}] was already on disk: check its handle() takes {$event} before mapping it.";
+        }
+
         $this->wire(
             "[{$name}]",
             app_path("{$target['context']}/{$target['context']}ServiceProvider.php"),
             'events',
-            ["\\{$eventClass}::class => \\{$handlerClass}::class,"]
+            $entries
         );
 
         // $events is keyed by the event, and a second entry under a key that

@@ -238,6 +238,21 @@ test('the queued note never asks for an import, and never says the handler is no
         ->not->toContain('final readonly class NotifyAccounting implements');
 });
 
+test('it hedges the mapping for a handler that was already on disk', function () {
+    // The handler was written against whatever event it was written against,
+    // and nothing here reads its handle() signature. Mapping it to this event
+    // compiles and then fails at dispatch, or silently does the wrong thing.
+    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting'];
+
+    $this->artisan('ldd:make:event-handler', $args)->assertSuccessful();
+
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:event-handler', $args);
+
+    expect(Artisan::output())->toContain('check its handle() takes WidgetCreated before mapping it');
+});
+
 test('it never overwrites a handler that exists', function () {
     $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting'];
 

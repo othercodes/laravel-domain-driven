@@ -73,6 +73,22 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
+        // Before anything is written or registered. On a case-insensitive
+        // filesystem `ldd:make:bounded-context identityandaccess` finds the
+        // real IdentityAndAccess, reports its provider "exists, skipped", and
+        // then registers App\Identityandaccess\IdentityandaccessServiceProvider
+        // beside the real entry: unique() compares strings, so the list grows a
+        // second provider that boots the same context twice here and resolves
+        // to nothing on Linux.
+        if (($onDisk = $this->misspelling($context)) !== null) {
+            $this->components->error("The bounded context on disk is [{$onDisk}], not [{$context}].");
+            $this->components->bulletList([
+                "Run it again as: {$onDisk}",
+            ]);
+
+            return self::FAILURE;
+        }
+
         $path = app_path($context);
         $provider = $path."/{$context}ServiceProvider.php";
 
@@ -119,7 +135,14 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
                     // as a commented example instead, in that same file, and
                     // an entry pasted into a class body with no array around
                     // it is a parse error.
-                    '// $routes may still be the commented-out example in that file. Uncomment it first.',
+                    // Not "uncomment it": the example is written around a web.php
+                    // entry, so uncommenting it on a context created with --api
+                    // declares a route file nobody made. bootRoutes() groups
+                    // that path on boot, which is a fatal in a provider
+                    // bootstrap/providers.php loads, from a run that printed
+                    // green.
+                    '// If $routes is still the commented-out example there, replace it with a real',
+                    '// property holding the entry above, and nothing else.',
                 ]
             );
         }

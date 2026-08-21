@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 
 /*
@@ -95,6 +96,37 @@ test('it says nothing about publishing when publishes was asked for', function (
         ->assertSuccessful();
 });
 
+test('publishes over a use case that already exists still says what to do', function () {
+    // The path ldd:make:aggregate --events sends you down. Passing the flag it
+    // asks for used to leave you with less than omitting it: put() skips the
+    // file, the rendered stub is discarded, and the note was behind the flag.
+    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'CreateWidget'];
+
+    $this->artisan('ldd:make:use-case', $args)->assertSuccessful();
+
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:use-case', $args + ['--publishes' => true]);
+
+    expect(Artisan::output())
+        ->toContain('--publishes changed nothing')
+        ->toContain('publishDomainEvents($this->eventBus)');
+});
+
+test('the publish note names what the constructor has to gain', function () {
+    // A use case this run did not write has neither $eventBus nor an import of
+    // DB, so the idiom alone does not compile where it is pasted.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:use-case', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',
+    ]);
+
+    expect(Artisan::output())
+        ->toContain('add to the constructor: private \ComplexHeart\Domain\Contracts\Events\EventBus $eventBus,')
+        ->toContain('\Illuminate\Support\Facades\DB::transaction(');
+});
+
 test('it stays quiet when the aggregate has no events to lose', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Gadget'])
         ->assertSuccessful();
@@ -104,6 +136,21 @@ test('it stays quiet when the aggregate has no events to lose', function () {
     ])
         ->doesntExpectOutputToContain('records domain events')
         ->assertSuccessful();
+});
+
+test('it refuses the plural of an aggregate that exists', function () {
+    // Str::plural leaves a plural alone, so the directory check passed for an
+    // aggregate that does not exist and the use case was generated against
+    // WidgetsRepository and Widgets, neither of which is a class. It parses,
+    // so nothing catches it until the container resolves it. The plural is the
+    // natural thing to type: it is the directory name ls shows.
+    $this->artisan('ldd:make:use-case', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widgets', 'name' => 'ArchiveWidget',
+    ])
+        ->expectsOutputToContain('The aggregate [Widgets] does not exist')
+        ->assertFailed();
+
+    expect(app_path('ScaffoldFixture/Widgets/Application/ArchiveWidget.php'))->not->toBeFile();
 });
 
 test('it refuses an aggregate that does not exist', function () {

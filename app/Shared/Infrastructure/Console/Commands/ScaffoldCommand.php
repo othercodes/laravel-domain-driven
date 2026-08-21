@@ -126,6 +126,38 @@ abstract class ScaffoldCommand extends Command
     }
 
     /**
+     * The real spelling of a context directory, when it is not the one given.
+     *
+     * Every prerequisite check here asks the filesystem whether a context is
+     * there, and on macOS the filesystem answers yes to any casing. So
+     * `ldd:make:aggregate identityandaccess Widget` passed, and wrote
+     * `namespace App\Identityandaccess\...` into files the OS put inside the
+     * real app/IdentityAndAccess. It exits 0, it commits, and on Linux PSR-4
+     * resolves none of it: every generated class is fatal on first use.
+     * ldd:make:bounded-context went further and registered a second provider
+     * beside the real one.
+     *
+     * Returns null when there is nothing on disk to disagree with, so a
+     * context being created for the first time is unaffected.
+     */
+    protected function misspelling(string $context): ?string
+    {
+        // Read from a directory scan, not from realpath(): on a bind mount the
+        // kernel resolves the path as given and hands back the spelling it was
+        // asked for, so realpath() agrees with whatever was typed. Only
+        // listing app/ gives the name as it is actually stored.
+        foreach ($this->files->directories(app_path()) as $dir) {
+            $onDisk = basename($dir);
+
+            if (strcasecmp($onDisk, $context) === 0) {
+                return $onDisk === $context ? null : $onDisk;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Resolves an existing aggregate from the names it was given.
      *
      * Prerequisites cascade and nothing is ever generated upwards: an event
@@ -158,10 +190,25 @@ abstract class ScaffoldCommand extends Command
             return null;
         }
 
+        if (($onDisk = $this->misspelling($context)) !== null) {
+            $this->components->error("The bounded context on disk is [{$onDisk}], not [{$context}].");
+            $this->components->bulletList([
+                "Run it again as: {$onDisk}",
+            ]);
+
+            return null;
+        }
+
         $plural = Str::plural($aggregate);
         $path = app_path("{$context}/{$plural}");
 
-        if (! $this->files->isDirectory($path)) {
+        // The aggregate root, not the directory around it. Str::plural leaves
+        // a name that is already plural alone, so `ldd:make:use-case
+        // IdentityAndAccess Users ArchiveUser` found app/IdentityAndAccess/Users
+        // and generated a use case typed against UsersRepository and Users,
+        // neither of which exists. The plural is the natural thing to type: it
+        // is the directory name ls shows.
+        if (! $this->files->exists("{$path}/Domain/{$aggregate}.php")) {
             $this->components->error("The aggregate [{$aggregate}] does not exist in [{$context}].");
             $this->components->bulletList([
                 "Create it with: php artisan ldd:make:aggregate {$context} {$aggregate}",
@@ -314,7 +361,8 @@ abstract class ScaffoldCommand extends Command
         $this->newLine();
         $this->line('  <options=bold>Nothing below was wired.</>');
         $this->line('  <fg=gray>These files were neither read nor written by this run, so check each entry is</>');
-        $this->line('  <fg=gray>not already there before pasting it.</>');
+        $this->line('  <fg=gray>not already there before pasting it. Where an entry has a key, a second entry</>');
+        $this->line('  <fg=gray>under that key replaces the first without a word: check the key, not the line.</>');
 
         foreach ($this->report as $block) {
             $this->newLine();

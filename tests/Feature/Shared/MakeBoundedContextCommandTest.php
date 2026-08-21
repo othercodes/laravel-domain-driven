@@ -101,6 +101,24 @@ test('the provider stub accepts the list form its own report tells you to write'
         ->toContain('@var array<class-string, class-string|array<int, class-string>>');
 });
 
+test('it refuses a context whose real spelling on disk is different', function () {
+    // The filesystem answers yes to any casing on macOS, so this found the
+    // real IdentityAndAccess, called its provider "exists, skipped", and then
+    // registered App\Identityandaccess\IdentityandaccessServiceProvider beside
+    // the real entry: the same context booted twice here, and nothing that
+    // resolves on Linux.
+    $this->artisan('ldd:make:bounded-context', ['name' => 'identityandaccess'])
+        ->expectsOutputToContain('The bounded context on disk is [IdentityAndAccess]')
+        ->assertFailed();
+
+    expect(File::get($this->providers))->not->toContain('Identityandaccess');
+})->skip(
+    // Evaluated at collection time, before the application boots, so no
+    // base_path() here. A case-sensitive filesystem cannot reach this state.
+    ! is_dir(dirname(__DIR__, 3).'/app/identityandaccess'),
+    'the filesystem is case-sensitive, so the name cannot collide'
+);
+
 test('it creates no layer directories', function () {
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
 
@@ -195,7 +213,7 @@ test('it asks for the $routes entry even when it wrote nothing at all', function
         // all: this context was created without a route flag, so it carries
         // $routes as a commented example. An entry pasted into a class body
         // with no array around it is a parse error.
-        ->expectsOutputToContain('may still be the commented-out example')
+        ->expectsOutputToContain('replace it with a real')
         ->assertSuccessful();
 });
 

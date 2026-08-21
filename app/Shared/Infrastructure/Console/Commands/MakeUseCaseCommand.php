@@ -40,6 +40,7 @@ final class MakeUseCaseCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
+        $variable = Str::camel($target['aggregate']);
         $stub = $this->option('publishes') ? 'use-case.publishes' : 'use-case';
 
         // put() reports whether it wrote, and saying "created" over the top of
@@ -49,64 +50,32 @@ final class MakeUseCaseCommand extends ScaffoldCommand
             '{{ context }}' => $target['context'],
             '{{ aggregate }}' => $target['aggregate'],
             '{{ plural }}' => $target['plural'],
-            '{{ variable }}' => Str::camel($target['aggregate']),
+            '{{ variable }}' => $variable,
             '{{ name }}' => $name,
         ]));
-
-        // Nothing here edits a file this run did not create, so the check
-        // has nothing to protect and only has to run before the success line.
-        if (! $this->compiles()) {
-            return self::FAILURE;
-        }
 
         $this->newLine();
         $this->components->info("Use case [{$name}] ".($written ? 'created' : 'left as it is')." in [{$target['context']}].");
 
-        $this->printPublishHint($target);
-
-        return self::SUCCESS;
-    }
-
-    /**
-     * @param  array{context: string, aggregate: string, plural: string, path: string}  $target
-     */
-    private function printPublishHint(array $target): void
-    {
-        if ($this->option('publishes')) {
-            return;
-        }
-
         // Only worth saying when the aggregate has events to lose: what the
         // domain already holds decides this, not the flag.
-        if (! $this->files->isDirectory("{$target['path']}/Domain/Events")) {
-            return;
+        if ($written
+            && ! $this->option('publishes')
+            && $this->files->isDirectory("{$target['path']}/Domain/Events")) {
+            $this->note(
+                "{$target['aggregate']} records domain events. A use case that creates or changes one has to publish them:",
+                [
+                    "\$this->repository->save(\${$variable});",
+                    "\${$variable}->publishDomainEvents(\$this->eventBus);  // ComplexHeart\\Domain\\Contracts\\Events\\EventBus",
+                    '// both inside DB::transaction, so a failing listener cannot leave the aggregate persisted',
+                    '',
+                    '// --publishes scaffolds exactly this.',
+                ]
+            );
         }
 
-        // And only until something publishes them. This is the same question
-        // ldd:make:aggregate asks before printing its own version, and the two
-        // have no business disagreeing about the answer, so both ask it through
-        // the one helper rather than each keeping a copy that can drift.
-        $answer = $this->publishesDomainEvents("{$target['path']}/Application");
+        $this->report();
 
-        if ($answer['publishes']) {
-            return;
-        }
-
-        $this->newLine();
-
-        // Any of them may be the use case that publishes, so advising one
-        // would be asking for what is already written.
-        if ($answer['unreadable'] !== []) {
-            $this->line("  <fg=yellow>Could not tell whether anything publishes {$target['aggregate']}'s events: these do not parse:</>");
-
-            foreach ($answer['unreadable'] as $file) {
-                $this->line("  <fg=gray>{$file}</>");
-            }
-
-            return;
-        }
-
-        $this->line("  <fg=yellow>{$target['aggregate']} records domain events. A use case that creates or changes one</>");
-        $this->line('  <fg=yellow>should publish them, which is what --publishes scaffolds.</>');
+        return self::SUCCESS;
     }
 }

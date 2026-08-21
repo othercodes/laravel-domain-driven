@@ -1,6 +1,5 @@
 <?php
 
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 
 /*
@@ -33,18 +32,55 @@ afterEach(function () {
     }
 });
 
-test('it creates the handler and declares it in the provider', function () {
+test('it creates the handler and says how to declare it', function () {
+    $this->artisan('ldd:make:event-handler', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting',
+    ])
+        // The declaration is the point: a handler missing from $events is
+        // never called and nothing anywhere says so. It is printed rather
+        // than appended because $events is keyed by the event, and what
+        // should happen when the key is taken is not this command's call.
+        ->expectsOutputToContain('in $events')
+        ->expectsOutputToContain('\App\ScaffoldFixture\Widgets\Domain\Events\WidgetCreated::class => \App\ScaffoldFixture\Widgets\Application\EventHandlers\NotifyAccounting::class,')
+        ->assertSuccessful();
+
+    $file = app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php');
+
+    expect($file)->toBeFile()
+        ->and(php_parses($file))->toBeTrue();
+});
+
+test('it leaves the provider exactly as it found it', function () {
+    // The invariant the whole redesign rests on. A provider is loaded from
+    // bootstrap/providers.php, so a bad edit here took down every request and
+    // every artisan call, including the one needed to undo it, from a command
+    // that had just printed `wired` in green. Nothing this command does can
+    // reach that file any more.
+    $before = File::get($this->provider);
+
     $this->artisan('ldd:make:event-handler', [
         'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting',
     ])->assertSuccessful();
 
-    expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php'))->toBeFile();
+    expect(File::get($this->provider))->toBe($before);
+});
 
-    // The declaration is the point: a handler missing from $events is never
-    // called and nothing anywhere says so.
-    expect(File::get($this->provider))
-        ->toContain('\App\ScaffoldFixture\Widgets\Domain\Events\WidgetCreated::class => \App\ScaffoldFixture\Widgets\Application\EventHandlers\NotifyAccounting::class,')
-        ->and(php_parses($this->provider))->toBeTrue();
+test('a name the provider already imports is still generated and still compiles', function () {
+    // Handler names are free text, so one can land next to something the
+    // provider already imports. That used to be a fatal, because the entry
+    // was appended under its short name. The report writes it out in full, so
+    // there is nothing to collide with.
+    File::put($this->provider, str_replace(
+        'use ComplexHeart',
+        "use App\Elsewhere\NotifyAccounting;\nuse ComplexHeart",
+        File::get($this->provider)
+    ));
+
+    $this->artisan('ldd:make:event-handler', [
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting',
+    ])->assertSuccessful();
+
+    expect(php_parses($this->provider))->toBeTrue();
 });
 
 test('queued makes the handler implement ShouldQueue', function () {
@@ -60,62 +96,6 @@ test('queued makes the handler implement ShouldQueue', function () {
         ->and(php_parses($file))->toBeTrue();
 });
 
-test('it refuses a handler named after the event it handles', function () {
-    // The handler stub's only import is the event, and the event defaults to
-    // <Aggregate>Created, so this is the name a user naturally reaches for.
-    // The refusal has to be asked after the event is resolved: before that,
-    // there is nothing to compare the name against.
-    $this->artisan('ldd:make:event-handler', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'WidgetCreated',
-    ])
-        ->expectsOutputToContain('would not compile, so nothing was kept')
-        ->assertFailed();
-
-    expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers'))->not->toBeDirectory();
-});
-
-test('it refuses a handler named after the queue interface', function () {
-    // queueTheHandler adds ShouldQueue after the stub is rendered, so the
-    // handler came out as `class ShouldQueue implements ShouldQueue` under its
-    // own import: a fatal, reported as created in green.
-    $this->withoutMockingConsoleOutput();
-
-    $exit = $this->artisan('ldd:make:event-handler', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'ShouldQueue', '--queued' => true,
-    ]);
-
-    expect($exit)->toBe(1)
-        ->and(Artisan::output())
-        // The file that does not compile, which is the one to look at.
-        ->toContain('ScaffoldFixture/Widgets/Application/EventHandlers/ShouldQueue.php');
-
-    expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers'))->not->toBeDirectory();
-});
-
-test('it wires a handler whose short name the provider already imports', function () {
-    // Handler and event names are free text, so either can land next to
-    // something the provider already imports. Two imports resolving to one
-    // short name is a compile-time fatal, and this provider is loaded from
-    // bootstrap/providers.php: it took down every request and every artisan
-    // call, including the one needed to undo it, from a command that had just
-    // printed `wired` in green.
-    //
-    // Nothing caught it because every other test here generates into a
-    // provider this suite created a moment earlier, where what the command
-    // means to write and what the file already holds cannot disagree.
-    File::put($this->provider, str_replace(
-        'use ComplexHeart',
-        "use App\Elsewhere\NotifyAccounting;\nuse ComplexHeart",
-        File::get($this->provider)
-    ));
-
-    $this->artisan('ldd:make:event-handler', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting',
-    ])->assertSuccessful();
-
-    expect(php_parses($this->provider))->toBeTrue();
-});
-
 test('it defaults to the Created event and accepts another', function () {
     $this->artisan('ldd:make:aggregate', [
         'context' => 'ScaffoldFixture', 'name' => 'Gadget', '--events' => true,
@@ -129,87 +109,38 @@ test('it defaults to the Created event and accepts another', function () {
 
     $this->artisan('ldd:make:event-handler', [
         'context' => 'ScaffoldFixture', 'aggregate' => 'Gadget', 'name' => 'OnPaid', '--event' => 'GadgetPaid',
-    ])->assertSuccessful();
-
-    expect(File::get($this->provider))->toContain('\App\ScaffoldFixture\Gadgets\Domain\Events\GadgetPaid::class => \App\ScaffoldFixture\Gadgets\Application\EventHandlers\OnPaid::class,');
+    ])
+        ->expectsOutputToContain('\App\ScaffoldFixture\Gadgets\Domain\Events\GadgetPaid::class => \App\ScaffoldFixture\Gadgets\Application\EventHandlers\OnPaid::class,')
+        ->assertSuccessful();
 });
 
 test('it refuses an event the aggregate does not have', function () {
+    // Prerequisites cascade and nothing is generated upwards: the event
+    // belongs to the aggregate, and the command that owns the aggregate is
+    // the one that makes it.
     $this->artisan('ldd:make:event-handler', [
         'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'OnPaid', '--event' => 'WidgetPaid',
-    ])->assertFailed();
+    ])
+        ->expectsOutputToContain('ldd:make:aggregate ScaffoldFixture Widget --events')
+        ->assertFailed();
 
     expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers'))->not->toBeDirectory();
 });
 
-test('it refuses a second handler for the same event', function () {
+test('it refuses an aggregate that does not exist', function () {
     $this->artisan('ldd:make:event-handler', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting',
-    ])->assertSuccessful();
-
-    // Two entries under one key: PHP keeps the last and drops the first, with
-    // no error, so the first handler would quietly stop running.
-    $this->artisan('ldd:make:event-handler', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'AlsoNotify',
-    ])->assertFailed();
-
-    expect(app_path('ScaffoldFixture/Widgets/Application/EventHandlers/AlsoNotify.php'))->not->toBeFile()
-        ->and(substr_count(File::get($this->provider), 'WidgetCreated::class =>'))->toBe(1);
+        'context' => 'ScaffoldFixture', 'aggregate' => 'Nope', 'name' => 'OnThing',
+    ])
+        ->expectsOutputToContain('ldd:make:aggregate ScaffoldFixture Nope')
+        ->assertFailed();
 });
 
-test('a commented out mapping does not block the command', function () {
-    File::put($this->provider, str_replace(
-        'protected array $events = [];',
-        "protected array \$events = [\n        // WidgetCreated::class => SomeOldHandler::class,\n    ];",
-        File::get($this->provider)
-    ));
-
-    // Something parked behind // is not a mapping, and refusing on it leaves
-    // the developer with no way to add the handler at all.
+test('it refuses a context that does not exist', function () {
     $this->artisan('ldd:make:event-handler', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting',
-    ])->assertSuccessful();
-
-    expect(File::get($this->provider))->toContain('\App\ScaffoldFixture\Widgets\Domain\Events\WidgetCreated::class => \App\ScaffoldFixture\Widgets\Application\EventHandlers\NotifyAccounting::class,');
-});
-
-test('queued leaves a handler it did not write alone', function () {
-    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting'];
-
-    $this->artisan('ldd:make:event-handler', $args)->assertSuccessful();
-
-    // Reached by the command's own recovery path: the handler exists from a
-    // run that could not wire it. Importing ShouldQueue into a class that
-    // never gains the implements clause is an unused import Pint rejects.
-    File::put($this->provider, str_replace(
-        '        \App\ScaffoldFixture\Widgets\Domain\Events\WidgetCreated::class => \App\ScaffoldFixture\Widgets\Application\EventHandlers\NotifyAccounting::class,'."\n",
-        '',
-        File::get($this->provider)
-    ));
-
-    $this->artisan('ldd:make:event-handler', $args + ['--queued' => true])
-        ->expectsOutputToContain('already existed and was left as it is')
-        ->assertSuccessful();
-
-    expect(File::get(app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php')))
-        ->not->toContain('ShouldQueue');
-
-    // A handler holding no such class says "implements nothing" just as loudly
-    // as one that is simply not queued, and the advice for the two differs.
-    File::put(app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php'), "<?php\n");
-
-    // The run above wired the event back, and a second handler for one already
-    // mapped is refused before the hint is ever reached.
-    File::put($this->provider, str_replace(
-        '        \App\ScaffoldFixture\Widgets\Domain\Events\WidgetCreated::class => \App\ScaffoldFixture\Widgets\Application\EventHandlers\NotifyAccounting::class,'."\n",
-        '',
-        File::get($this->provider)
-    ));
-
-    $this->artisan('ldd:make:event-handler', $args + ['--queued' => true])
-        ->expectsOutputToContain('could not be read')
-        ->doesntExpectOutputToContain('Add `implements ShouldQueue` to it by hand')
-        ->assertSuccessful();
+        'context' => 'Nope', 'aggregate' => 'Widget', 'name' => 'OnThing',
+    ])
+        ->expectsOutputToContain('ldd:make:bounded-context Nope')
+        ->assertFailed();
 });
 
 test('it does not claim to have created a handler it skipped', function () {
@@ -217,67 +148,40 @@ test('it does not claim to have created a handler it skipped', function () {
 
     $this->artisan('ldd:make:event-handler', $args)->assertSuccessful();
 
-    File::put($this->provider, str_replace(
-        '        \App\ScaffoldFixture\Widgets\Domain\Events\WidgetCreated::class => \App\ScaffoldFixture\Widgets\Application\EventHandlers\NotifyAccounting::class,'."\n",
-        '',
-        File::get($this->provider)
-    ));
-
-    // The run still does something worth reporting, it declares the mapping,
-    // but it did not create the handler and must not say it did.
+    // Saying "created" over the top of its own "exists, skipped" is how a run
+    // that did nothing reads like one that did. The mapping is still printed:
+    // whether it was ever pasted is not something this command can know.
     $this->artisan('ldd:make:event-handler', $args)
         ->expectsOutputToContain('exists, skipped')
-        ->expectsOutputToContain('[NotifyAccounting] declared in [ScaffoldFixture]')
+        ->expectsOutputToContain('[NotifyAccounting] left as it is')
         ->assertSuccessful();
 });
 
-test('queued says nothing about a handler that is already queued', function () {
-    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting', '--queued' => true];
+test('queued leaves a handler it did not write alone, and says so', function () {
+    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting'];
 
     $this->artisan('ldd:make:event-handler', $args)->assertSuccessful();
 
-    File::put($this->provider, str_replace(
-        '        \App\ScaffoldFixture\Widgets\Domain\Events\WidgetCreated::class => \App\ScaffoldFixture\Widgets\Application\EventHandlers\NotifyAccounting::class,'."\n",
-        '',
-        File::get($this->provider)
-    ));
-
-    // The file is skipped either way; the difference is that this one already
-    // implements ShouldQueue, so there is nothing left to do by hand.
-    $this->artisan('ldd:make:event-handler', $args)
-        ->doesntExpectOutputToContain('already existed and was left as it is')
+    // Nothing rewrites a file that is already there, so --queued on a handler
+    // this run did not write cannot make it queued.
+    $this->artisan('ldd:make:event-handler', $args + ['--queued' => true])
+        ->expectsOutputToContain('already existed and was left as it is')
+        ->expectsOutputToContain('implements ShouldQueue')
         ->assertSuccessful();
+
+    expect(File::get(app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php')))
+        ->not->toContain('ShouldQueue');
 });
 
-test('it refuses to guess at a provider that does not parse', function () {
-    $this->artisan('ldd:make:event-handler', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting',
-    ])->assertSuccessful();
+test('it never overwrites a handler that exists', function () {
+    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting'];
 
-    File::put($this->provider, str_replace(
-        'class ScaffoldFixtureServiceProvider',
-        'class ScaffoldFixtureServiceProvider(',
-        File::get($this->provider)
-    ));
+    $this->artisan('ldd:make:event-handler', $args)->assertSuccessful();
 
-    // Reading it as empty would add a second entry under a key that already
-    // has one, and PHP keeps only the last: the first handler stops running
-    // with nothing said anywhere.
-    $this->artisan('ldd:make:event-handler', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'AlsoNotify',
-    ])->assertFailed();
+    $file = app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php');
+    File::put($file, File::get($file)."\n// hand written\n");
 
-    expect(substr_count(File::get($this->provider), 'WidgetCreated::class =>'))->toBe(1)
-        ->and(app_path('ScaffoldFixture/Widgets/Application/EventHandlers/AlsoNotify.php'))->not->toBeFile();
-});
+    $this->artisan('ldd:make:event-handler', $args)->assertSuccessful();
 
-test('it fails when the provider has no events array to declare in', function () {
-    File::put($this->provider, "<?php\n\nnamespace App\ScaffoldFixture;\n\nuse ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;\n\nclass ScaffoldFixtureServiceProvider extends BoundedContextServiceProvider\n{\n}\n");
-
-    // The handler exists but nothing calls it, so this must not report success.
-    $this->artisan('ldd:make:event-handler', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting',
-    ])->assertFailed();
-
-    expect(File::get($this->provider))->not->toContain('NotifyAccounting');
+    expect(File::get($file))->toContain('// hand written');
 });

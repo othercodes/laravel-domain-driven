@@ -199,8 +199,10 @@ test('queued leaves a handler it did not write alone, and says so', function () 
     // Nothing rewrites a file that is already there, so --queued on a handler
     // this run did not write cannot make it queued.
     $this->artisan('ldd:make:event-handler', $args + ['--queued' => true])
+        // One expectation per emitted line: both of these live on the same
+        // heading, and each is consumed as it matches. The wording is pinned
+        // in full by the Artisan::output() test above.
         ->expectsOutputToContain('already existed and was left as it is')
-        ->expectsOutputToContain('implements \\Illuminate\\Contracts\\Queue\\ShouldQueue')
         ->assertSuccessful();
 
     expect(File::get(app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php')))
@@ -222,8 +224,12 @@ test('the queued note never asks for an import, and never says the handler is no
 
     expect(Artisan::output())
         ->toContain('If it is not queued already')
-        ->toContain('implements \\Illuminate\\Contracts\\Queue\\ShouldQueue')
+        ->toContain('\\Illuminate\\Contracts\\Queue\\ShouldQueue')
         ->not->toContain('use Illuminate\\Contracts\\Queue\\ShouldQueue;')
+        // Not the clause either. Beside an interface the handler already has,
+        // what is needed is a comma, not a second `implements`; the name alone
+        // is right whether or not there is one.
+        ->not->toContain('implements \\Illuminate\\Contracts\\Queue\\ShouldQueue')
         // The clause, not the declaration it goes on. Printing the whole line
         // is the one place the report told anybody to replace existing text,
         // written without reading the file: a handler given another interface,

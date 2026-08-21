@@ -191,6 +191,11 @@ test('it asks for the $routes entry even when it wrote nothing at all', function
         ->expectsOutputToContain('exists, skipped')
         ->expectsOutputToContain('in $routes')
         ->expectsOutputToContain("'web' => [__DIR__.'/Shared/Infrastructure/Http/Routes/web.php'],")
+        // The one property in the whole report that may not be declared at
+        // all: this context was created without a route flag, so it carries
+        // $routes as a commented example. An entry pasted into a class body
+        // with no array around it is a parse error.
+        ->expectsOutputToContain('may still be the commented-out example')
         ->assertSuccessful();
 });
 

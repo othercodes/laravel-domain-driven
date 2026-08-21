@@ -122,16 +122,18 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         // into a handler that already imports ShouldQueue is a fatal in a
         // class the provider lists in $events.
         //
-        // The clause, not the declaration it goes on. Printing
-        // `final readonly class X implements ...` was the last line in the
-        // report telling anybody to replace existing text rather than add to
-        // it, written without reading the file it names: a handler somebody
-        // had given another interface, or had taken readonly off to hold
-        // state, loses that when the line is followed.
+        // The name, not the clause and not the declaration it goes on.
+        // Printing `final readonly class X implements ...` told anybody
+        // following it to replace existing text, written without reading the
+        // file: a handler given another interface, or with readonly taken off
+        // to hold state, loses that. Printing `implements ...` was no better
+        // beside an interface that is already there, where what is needed is a
+        // comma and not a second `implements`. The name alone is right in both
+        // cases, and the heading says where it goes.
         if (! $written && $this->option('queued')) {
             $this->note(
-                "[{$name}] already existed and was left as it is. If it is not queued already, add to its class declaration, beside anything it already implements:",
-                ['implements \\Illuminate\\Contracts\\Queue\\ShouldQueue']
+                "[{$name}] already existed and was left as it is. If it is not queued already, add this to its implements list:",
+                ['\\Illuminate\\Contracts\\Queue\\ShouldQueue']
             );
         }
 

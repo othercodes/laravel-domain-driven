@@ -108,10 +108,19 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
                 'the route files',
                 $provider,
                 'routes',
-                array_map(
-                    fn (string $kind): string => "'{$kind}' => [__DIR__.'/Shared/Infrastructure/Http/Routes/{$kind}.php'],",
-                    $routes
-                )
+                [
+                    ...array_map(
+                        fn (string $kind): string => "'{$kind}' => [__DIR__.'/Shared/Infrastructure/Http/Routes/{$kind}.php'],",
+                        $routes
+                    ),
+                    '',
+                    // The one property in the report that may not be declared
+                    // at all: a context created without a route flag gets it
+                    // as a commented example instead, in that same file, and
+                    // an entry pasted into a class body with no array around
+                    // it is a parse error.
+                    '// $routes may still be the commented-out example in that file. Uncomment it first.',
+                ]
             );
         }
 

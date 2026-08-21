@@ -17,7 +17,7 @@ class {{ context }}ServiceProvider extends BoundedContextServiceProvider
     /** @var array<class-string, class-string> */
     public array $bindings = [];
 
-    /** @var array<class-string, class-string> */
+    /** @var array<class-string, class-string|array<int, class-string>> */
     protected array $events = [];
 
     /** @var array<int, class-string> */

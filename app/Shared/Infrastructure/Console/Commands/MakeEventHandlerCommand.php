@@ -101,7 +101,12 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         // when the value is a list.
         $this->note(
             "If {$event} is already a key in \$events, do not add a second one: PHP keeps only the last. List both instead:",
-            ["\\{$eventClass}::class => [/* the handler already there */, \\{$handlerClass}::class],"]
+            [
+                "\\{$eventClass}::class => [",
+                '    // the handler already mapped to it, first',
+                "    \\{$handlerClass}::class,",
+                '],',
+            ]
         );
 
         // Nothing here rewrites a file, so a handler that was already on disk

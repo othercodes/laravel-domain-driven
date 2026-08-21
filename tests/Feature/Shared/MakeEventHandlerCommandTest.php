@@ -72,7 +72,8 @@ test('the report says it did not read the files, and how a second handler is add
         ->toContain('PHP keeps only the last')
         // The form that loses neither handler. bootEvents() listens for every
         // entry when the value is a list.
-        ->toContain('::class => [/* the handler already there */, \App\ScaffoldFixture\Widgets\Application\EventHandlers\NotifyAccounting::class],');
+        ->toContain('\App\ScaffoldFixture\Widgets\Domain\Events\WidgetCreated::class => [')
+        ->toContain('// the handler already mapped to it, first');
 });
 
 test('it leaves the provider exactly as it found it', function () {
@@ -105,7 +106,15 @@ test('a name the provider already imports is still generated and still compiles'
         'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting',
     ])->assertSuccessful();
 
-    expect(php_parses($this->provider))->toBeTrue();
+    // The handler itself, which is what the name of this test is about.
+    // Neither a green exit nor a parseable provider can observe it: handle()
+    // returns SUCCESS unconditionally and never opens the provider, so both
+    // assertions below held with nothing written at all.
+    $handler = app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php');
+
+    expect($handler)->toBeFile()
+        ->and(php_parses($handler))->toBeTrue()
+        ->and(php_parses($this->provider))->toBeTrue();
 });
 
 test('queued makes the handler implement ShouldQueue', function () {

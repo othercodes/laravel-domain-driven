@@ -92,6 +92,15 @@ test('the provider stub imports nothing but the base provider', function () {
     expect($imports[1])->toBe(['ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider']);
 });
 
+test('the provider stub accepts the list form its own report tells you to write', function () {
+    // ldd:make:event-handler prints the array form when an event already has a
+    // handler, and ComplexHeart's bootEvents() listens for every entry in it.
+    // Annotated more narrowly than the parent, PHPStan then rejects a provider
+    // this same toolchain generated four steps earlier.
+    expect(File::get(base_path('stubs/bounded-context.provider.stub')))
+        ->toContain('@var array<class-string, class-string|array<int, class-string>>');
+});
+
 test('it creates no layer directories', function () {
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
 
@@ -164,12 +173,31 @@ test('re-running creates the missing route file and says how to declare it', fun
     expect(app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes/web.php'))->toBeFile();
 });
 
-test('it says nothing about routes when it wrote no route file', function () {
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true])->assertSuccessful();
+test('it asks for the $routes entry even when it wrote nothing at all', function () {
+    // The state that most needs saying, and the one keying this on what put()
+    // wrote used to skip in silence: the provider and the route file are both
+    // there, and nothing knows whether $routes names the file. Reached by
+    // creating the route file by hand, exactly as the comment the provider
+    // stub ships instructs, and then running this to have the tool sort it
+    // out. Undeclared, bootRoutes() never loads it and every route in it 404s,
+    // over a run that printed green.
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
 
-    // Both the provider and the route file are already there, so this run
-    // writes nothing and has nothing to ask for.
+    $file = app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes/web.php');
+    File::ensureDirectoryExists(dirname($file));
+    File::put($file, "<?php\n");
+
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true])
+        ->expectsOutputToContain('exists, skipped')
+        ->expectsOutputToContain('in $routes')
+        ->expectsOutputToContain("'web' => [__DIR__.'/Shared/Infrastructure/Http/Routes/web.php'],")
+        ->assertSuccessful();
+});
+
+test('it says nothing about routes when no route file was asked for', function () {
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])
         ->expectsOutputToContain('exists, skipped')
         ->doesntExpectOutputToContain('in $routes')
         ->assertSuccessful();

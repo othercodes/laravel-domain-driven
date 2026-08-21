@@ -85,13 +85,24 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
             '{{ routes }}' => $this->routesProperty($context),
         ]));
 
-        $routes = $this->writeRoutes($context, $path);
+        // Read from the options, not from what put() wrote. A run that finds
+        // both the provider and the route file already there wrote nothing and
+        // used to say nothing, which is the state that most needs saying: the
+        // file may well have been created by hand, following the convention
+        // the stub itself prints as a comment, and then it is declared by
+        // nothing and every route in it 404s. Whether the entry is already in
+        // $routes is not something this command can know, and the standing
+        // line above the report says exactly that.
+        $routes = array_values(array_filter(
+            ['web', 'api'],
+            fn (string $kind): bool => (bool) $this->option($kind)
+        ));
+
+        $this->writeRoutes($context, $path);
 
         // The stub renders $routes from the same options, so a provider this
         // run wrote already declares whatever route file it wrote beside it.
-        // A provider that was already there does not, and a route file the
-        // provider does not declare is loaded by nothing, with a 404 as the
-        // only symptom.
+        // A provider that was already there does not.
         if (! $providerWritten && $routes !== []) {
             $this->wire(
                 'the route files',
@@ -133,29 +144,18 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
         return $registered ? self::SUCCESS : self::FAILURE;
     }
 
-    /**
-     * @return list<string> The route files this run actually created.
-     */
-    private function writeRoutes(string $context, string $path): array
+    private function writeRoutes(string $context, string $path): void
     {
-        $created = [];
-
         foreach (['web', 'api'] as $kind) {
             if (! $this->option($kind)) {
                 continue;
             }
 
-            $written = $this->put(
+            $this->put(
                 $path."/Shared/Infrastructure/Http/Routes/{$kind}.php",
                 $this->stub("bounded-context.routes.{$kind}", ['{{ context }}' => $context])
             );
-
-            if ($written) {
-                $created[] = $kind;
-            }
         }
-
-        return $created;
     }
 
     /**

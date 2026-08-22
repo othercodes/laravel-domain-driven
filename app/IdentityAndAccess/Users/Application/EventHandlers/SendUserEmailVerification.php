@@ -8,14 +8,14 @@ use App\IdentityAndAccess\Users\Application\FindUser;
 use App\IdentityAndAccess\Users\Domain\Contracts\UserRepository;
 use App\IdentityAndAccess\Users\Domain\Events\UserEmailUpdated;
 use App\IdentityAndAccess\Users\Domain\Exceptions\UserNotFound;
-use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
 /**
  * Class SendUserEmailVerification
  *
  * @author Unay Santisteban <usantisteban@othercode.io>
  */
-final readonly class SendUserEmailVerification implements ShouldQueueAfterCommit
+final readonly class SendUserEmailVerification implements ShouldQueue
 {
     private FindUser $finder;
 

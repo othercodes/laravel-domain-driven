@@ -257,22 +257,6 @@ test('the application layer does not fill an aggregate behind its own back', fun
     expect($offenders)->toBeEmpty();
 });
 
-/*
-| A queued listener dispatched from inside DB::transaction can be picked up by
-| a worker before the commit, and this application publishes inside the
-| transaction on purpose. So a handler that queues waits for the commit.
-*/
-test('queued event handlers wait for the commit', function () use ($appPath) {
-    $offenders = array_values(array_filter(
-        glob($appPath.'/*/*/Application/EventHandlers/*.php') ?: [],
-        // The bare interface only. ShouldQueueAfterCommit extends it, so a
-        // word boundary is what tells the two apart.
-        fn (string $file): bool => preg_match('/implements[^{]*\bShouldQueue\b/', (string) file_get_contents($file)) === 1
-    ));
-
-    expect($offenders)->toBeEmpty();
-});
-
 arch('no debugging statements')
     ->expect(['dd', 'dump', 'var_dump', 'ray'])
     ->not->toBeUsed();

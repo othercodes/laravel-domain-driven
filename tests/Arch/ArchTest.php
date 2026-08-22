@@ -242,6 +242,21 @@ test('every service provider declares the wiring arrays the stub does', function
 |--------------------------------------------------------------------------
 */
 
+/*
+| The application layer changes an aggregate through the aggregate, not around
+| it. UpdateUserPassword and ResetUserPassword each did their own
+| forceFill(['password' => ...])->save() while User::updatePassword() sat
+| unused, which is the pattern this starter exists to fix rather than ship.
+*/
+test('the application layer does not fill an aggregate behind its own back', function () use ($appPath) {
+    $offenders = array_values(array_filter(
+        glob($appPath.'/*/*/Application/{,*/}*.php', GLOB_BRACE) ?: [],
+        fn (string $file): bool => str_contains((string) file_get_contents($file), 'forceFill(')
+    ));
+
+    expect($offenders)->toBeEmpty();
+});
+
 arch('no debugging statements')
     ->expect(['dd', 'dump', 'var_dump', 'ray'])
     ->not->toBeUsed();

@@ -4,16 +4,27 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
-use App\Shared\Infrastructure\Console\Support\SourceFile;
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Str;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * Class ScaffoldCommand
  *
  * Shared plumbing for the ldd:make:* commands: rendering stubs, writing
- * files without clobbering, and editing PHP sources the way Pint expects.
+ * files that are not there yet, and collecting the wiring report.
+ *
+ * These commands create files. They do not edit them. The one exception is
+ * ldd:make:bounded-context registering its provider through Laravel's own
+ * ServiceProvider::addProviderToBootstrapFile(), and that is the framework's
+ * code, not ours.
+ *
+ * Everything else that would have to be edited is printed instead: register
+ * this class, in this file, in this property, and here is how it reads. That
+ * costs a paste and buys back the whole class of failure that came from
+ * writing into files whose contents are not ours to predict.
  *
  * @author Unay Santisteban <usantisteban@othercode.io>
  */
@@ -44,6 +55,23 @@ abstract class ScaffoldCommand extends Command
         'throw', 'trait', 'true', 'try', 'unset', 'use', 'var', 'void', 'while', 'xor', 'yield',
     ];
 
+    /**
+     * The blocks to print once every file is written.
+     *
+     * @var list<array{heading: string, lines: list<string>}>
+     */
+    private array $report = [];
+
+    /**
+     * Artisan reuses the command instance between calls in one process, so
+     * per-run state kept on a property carries one run into the next. Symfony
+     * calls this before every run.
+     */
+    protected function initialize(InputInterface $input, OutputInterface $output): void
+    {
+        $this->report = [];
+    }
+
     public function __construct(protected readonly Filesystem $files)
     {
         parent::__construct();
@@ -52,7 +80,7 @@ abstract class ScaffoldCommand extends Command
     /**
      * Normalises a name and rejects anything that is not a legal PHP
      * identifier. Without this the command happily writes `class 2024Report`,
-     * which is a parse error that takes the whole application down.
+     * which is a parse error in a file somebody then has to find.
      */
     protected function identifier(string $value, string $label): ?string
     {
@@ -78,15 +106,73 @@ abstract class ScaffoldCommand extends Command
     }
 
     /**
+     * Whether a name this command was given is a name it refuses.
+     *
+     * strcasecmp, not ===. Every name compared here ends up as a PHP class
+     * name or as a namespace segment, and PHP resolves both without case, so
+     * `boundedcontext` and `bOundedContext` declare the same class as
+     * `BoundedContext`. Str::studly only upper-cases the first letter of each
+     * word and leaves the rest as written, so the value arriving here keeps
+     * whatever case it was typed in.
+     *
+     * It lives on the base class rather than at each comparison because the
+     * same rule was answered once before, in a comment beside one call site,
+     * while the other call sites went on comparing with ===. An invariant kept
+     * by whoever remembers it is not kept.
+     */
+    protected function refuses(string $name, string $reserved): bool
+    {
+        return strcasecmp($name, $reserved) === 0;
+    }
+
+    /**
+     * The real spelling of a context directory, when it is not the one given.
+     *
+     * Every prerequisite check here asks the filesystem whether a context is
+     * there, and on macOS the filesystem answers yes to any casing. So
+     * `ldd:make:aggregate identityandaccess Widget` passed, and wrote
+     * `namespace App\Identityandaccess\...` into files the OS put inside the
+     * real app/IdentityAndAccess. It exits 0, it commits, and on Linux PSR-4
+     * resolves none of it: every generated class is fatal on first use.
+     * ldd:make:bounded-context went further and registered a second provider
+     * beside the real one.
+     *
+     * Returns null when there is nothing on disk to disagree with, so a
+     * context being created for the first time is unaffected.
+     */
+    protected function misspelling(string $name, string $parent = ''): ?string
+    {
+        $in = $parent === '' ? app_path() : app_path($parent);
+
+        if (! $this->files->isDirectory($in)) {
+            return null;
+        }
+
+        // Read from a directory scan, not from realpath(): on a bind mount the
+        // kernel resolves the path as given and hands back the spelling it was
+        // asked for, so realpath() agrees with whatever was typed. Only
+        // listing the parent gives the name as it is actually stored.
+        foreach ($this->files->directories($in) as $dir) {
+            $onDisk = basename($dir);
+
+            if (strcasecmp($onDisk, $name) === 0) {
+                return $onDisk === $name ? null : $onDisk;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Resolves an existing aggregate from the names it was given.
      *
-     * The names are passed in rather than read here: a base class cannot
-     * know which arguments its subclasses declare, and reaching for one that
-     * does not exist is a runtime error waiting for whoever adds the next
-     * command.
+     * Prerequisites cascade and nothing is ever generated upwards: an event
+     * handler needs an aggregate, an aggregate needs a bounded context, and a
+     * command asked for one whose prerequisite is missing fails saying which
+     * command creates it.
      *
-     * Returns null, having said why, when either is missing: these commands
-     * add to an aggregate that exists, they never create one.
+     * The names are passed in rather than read here: a base class cannot know
+     * which arguments its subclasses declare.
      *
      * @return array{context: string, aggregate: string, plural: string, path: string}|null
      */
@@ -99,8 +185,8 @@ abstract class ScaffoldCommand extends Command
             return null;
         }
 
-        // A directory alone is not a context: it also has to be wired by a
-        // provider named after it, which is what these commands edit.
+        // A directory alone is not a context: it also has to have a provider
+        // named after it, which is the file the report tells you to edit.
         if (! $this->files->exists(app_path("{$context}/{$context}ServiceProvider.php"))) {
             $this->components->error("The bounded context [{$context}] does not exist.");
             $this->components->bulletList([
@@ -110,10 +196,40 @@ abstract class ScaffoldCommand extends Command
             return null;
         }
 
+        if (($onDisk = $this->misspelling($context)) !== null) {
+            $this->components->error("The bounded context on disk is [{$onDisk}], not [{$context}].");
+            $this->components->bulletList([
+                "Run it again as: {$onDisk}",
+            ]);
+
+            return null;
+        }
+
         $plural = Str::plural($aggregate);
+
+        // The same trap one level down. app/IdentityAndAccess/APITokens
+        // answers to ApiTokens on a case-insensitive filesystem, and `ApiToken`
+        // is what Str::studly makes of api-token, so the run would write into
+        // the real directory under a namespace PSR-4 cannot resolve anywhere
+        // else.
+        if (($onDisk = $this->misspelling($plural, $context)) !== null) {
+            $this->components->error("The aggregate directory on disk is [{$onDisk}], not [{$plural}].");
+            $this->components->bulletList([
+                'Run it again with the aggregate name that pluralises to '.$onDisk.'.',
+            ]);
+
+            return null;
+        }
+
         $path = app_path("{$context}/{$plural}");
 
-        if (! $this->files->isDirectory($path)) {
+        // The aggregate root, not the directory around it. Str::plural leaves
+        // a name that is already plural alone, so `ldd:make:use-case
+        // IdentityAndAccess Users ArchiveUser` found app/IdentityAndAccess/Users
+        // and generated a use case typed against UsersRepository and Users,
+        // neither of which exists. The plural is the natural thing to type: it
+        // is the directory name ls shows.
+        if (! $this->files->exists("{$path}/Domain/{$aggregate}.php")) {
             $this->components->error("The aggregate [{$aggregate}] does not exist in [{$context}].");
             $this->components->bulletList([
                 "Create it with: php artisan ldd:make:aggregate {$context} {$aggregate}",
@@ -160,50 +276,131 @@ abstract class ScaffoldCommand extends Command
         return true;
     }
 
-    protected function relative(string $path): string
+    /**
+     * Adds imports to a stub this run has just rendered.
+     *
+     * Only ever called on our own output, which is what makes it safe to
+     * rewrite the whole import block. It does not check whether a short name
+     * is already taken, because the file being written is a new one: a
+     * generated class that collides with something its own stub imports
+     * produces a file that does not compile, sitting on its own in the
+     * aggregate's directory, which is exactly what `make:model Model` leaves
+     * behind in Laravel. Nothing else loads it, so nothing else breaks.
+     */
+    protected function withImports(string $contents, string ...$classes): string
     {
-        return Str::after($path, base_path().DIRECTORY_SEPARATOR);
+        preg_match_all('/^use (.+);$/m', $contents, $matches);
+
+        $imports = array_values(array_unique([...$matches[1], ...$classes]));
+
+        // Pint compares the namespace separator as a space, so a byte-wise
+        // sort() would order InvoicesLines before Invoices and fail the lint.
+        usort($imports, fn (string $a, string $b): int => str_replace('\\', ' ', $a) <=> str_replace('\\', ' ', $b));
+
+        $block = implode('', array_map(fn (string $i): string => "use {$i};\n", $imports));
+
+        // Every `use` line is replaced, not just the first contiguous run:
+        // rewriting one group would leave the imports of any later group
+        // duplicated, and duplicate imports are fatal. preg_replace_callback
+        // rather than preg_replace, whose replacement would read a namespace
+        // such as \20 as a backreference.
+        $written = false;
+
+        $result = preg_replace_callback(
+            '/^use .+;\n/m',
+            function () use ($block, &$written): string {
+                if ($written) {
+                    return '';
+                }
+
+                $written = true;
+
+                return $block;
+            },
+            $contents
+        );
+
+        // Collapse the blank lines left where a later group used to be.
+        return (string) preg_replace("/\n{3,}/", "\n\n", (string) $result);
     }
 
     /**
-     * Whether anything in an aggregate's application layer publishes its
-     * recorded domain events.
+     * Queues a block for the report printed after every file is written.
      *
-     * Two commands ask this before advising a use case that publishes, and
-     * they have no business disagreeing about the answer. They did, once: one
-     * learned to skip a file it could not read and the other went on treating
-     * unreadable as "does not publish", which is how you get told to write a
-     * use case that is sitting in the file nobody could parse. One
-     * implementation is the only thing that keeps the two honest.
-     *
-     * Files that do not parse are returned rather than counted either way,
-     * since any of them may be the use case that publishes.
-     *
-     * @return array{publishes: bool, unreadable: list<string>}
+     * @param  list<string>  $lines
      */
-    protected function publishesDomainEvents(string $applicationPath): array
+    protected function note(string $heading, array $lines): void
     {
-        $unreadable = [];
+        $this->report[] = ['heading' => $heading, 'lines' => $lines];
+    }
 
-        if (! $this->files->isDirectory($applicationPath)) {
-            return ['publishes' => false, 'unreadable' => []];
+    /**
+     * Queues the registration of entries in an array a file declares.
+     *
+     * Everything printed is written out in full and never imported. The file
+     * it goes into keeps an import list of its own, and adding to that list
+     * is how two imports end up resolving to one short name, which is a
+     * compile-time fatal. Fully qualified, a pasted line cannot collide with
+     * anything.
+     *
+     * The entries only, never the property declaration around them. Printing
+     * `public array $bindings = [` and its closing bracket made the block look
+     * like something to paste whole, and every file this points at declares
+     * the property already: the stub ships all four, DatabaseSeeder ships
+     * $seeders. Pasted as printed, that is a redeclared property, which is a
+     * fatal in a provider bootstrap/providers.php loads. The heading says
+     * which property, which is the part that cannot be read off the entry.
+     *
+     * @param  list<string>  $entries
+     */
+    protected function wire(string $subject, string $file, string $property, array $entries): void
+    {
+        $this->note(
+            "Register {$subject} in {$this->relative($file)}, in \${$property}:",
+            $entries
+        );
+    }
+
+    /**
+     * Prints everything queued, and empties the queue.
+     *
+     * Called once, after the files are on disk, so the run reads as what was
+     * created followed by what is left to do rather than the two interleaved.
+     */
+    protected function report(): void
+    {
+        if ($this->report === []) {
+            return;
         }
 
-        foreach ($this->files->allFiles($applicationPath) as $file) {
-            $source = SourceFile::at($file->getPathname());
+        // Said once, over everything below, because it is true of every block
+        // and always will be: these commands do not read the files they name.
+        // Without it each heading reads as a statement about that file, and
+        // the headings are written by whoever adds the next call site. An
+        // imperative that cannot be checked has to say so where it is printed,
+        // not in the head of the person who wrote it.
+        $this->newLine();
+        $this->line('  <options=bold>Nothing below was wired.</>');
+        $this->line('  <fg=gray>These files were neither read nor written by this run, so check each entry is</>');
+        $this->line('  <fg=gray>not already there before pasting it. Where an entry has a key, a second entry</>');
+        $this->line('  <fg=gray>under that key replaces the first without a word: check the key, not the line.</>');
 
-            if (! $source->parsed()) {
-                $unreadable[] = $this->relative($file->getPathname());
+        foreach ($this->report as $block) {
+            $this->newLine();
+            $this->line("  <options=bold>{$block['heading']}</>");
+            $this->newLine();
 
-                continue;
-            }
-
-            if ($source->calls('publishDomainEvents')) {
-                return ['publishes' => true, 'unreadable' => []];
+            foreach ($block['lines'] as $line) {
+                $this->line("  <fg=gray>{$line}</>");
             }
         }
 
-        return ['publishes' => false, 'unreadable' => $unreadable];
+        $this->report = [];
+    }
+
+    protected function relative(string $path): string
+    {
+        return Str::after($path, base_path().DIRECTORY_SEPARATOR);
     }
 
     /**
@@ -216,8 +413,8 @@ abstract class ScaffoldCommand extends Command
      *
      * Returns the class that is on disk afterwards, whether this call wrote it
      * or found it already there, and null only when it could not be written.
-     * The caller wires what exists, not what it happened to create, so that a
-     * re-run still registers a class an earlier one wrote but never wired.
+     * The report names what exists, not what this run happened to create, so
+     * that a re-run still tells you to declare a class an earlier one wrote.
      *
      * @param  array<string, mixed>  $options
      */
@@ -259,270 +456,5 @@ abstract class ScaffoldCommand extends Command
         $this->components->twoColumnDetail($this->relative($path), '<fg=green>created</>');
 
         return true;
-    }
-
-    /**
-     * Refuses, loudly, a run that would generate a file holding two things
-     * under one short name.
-     *
-     * PHP rejects that at compile time whether the two are two imports or an
-     * import and the class the file declares, and a generated file reaches it
-     * from either side: an aggregate called Model lands under Eloquent's
-     * import, a handler called InvoiceCreated lands under its own event, and
-     * an aggregate called Collection puts Illuminate's Collection next to the
-     * one in its own domain.
-     *
-     * The stubs are rendered and read, rather than their names being listed
-     * here. stubs/ is the one thing in this repository meant to be edited, so
-     * a list would describe it as it was the day it was written, and an
-     * earlier version of this guard compared the bare argument against
-     * unrendered imports: it caught Model, whose stub declares the aggregate
-     * name as written, and waved through Json and Aggregate, whose stubs
-     * declare a name derived from it.
-     *
-     * Every stub the command can render is asked, including ones a given run
-     * would not reach. Refusing an aggregate called Request whether or not
-     * --web was passed costs a name nobody should want in a Laravel
-     * application, and a guard that answers differently depending on the flags
-     * is a worse thing to reason about.
-     *
-     * @param  array<string, string>  $replacements  the run's stub substitutions
-     * @param  list<string>  $also  imports the command adds after rendering
-     */
-    protected function refusesCollidingNames(string $glob, array $replacements, array $also = []): bool
-    {
-        foreach ($this->files->glob(base_path("stubs/{$glob}.stub")) ?: [] as $path) {
-            $rendered = str_replace(array_keys($replacements), array_values($replacements), $this->files->get($path));
-
-            preg_match_all('/^use (.+);$/m', $rendered, $imports);
-            preg_match_all('/^(?:(?:final|abstract|readonly)\s+)*(?:class|interface|trait|enum)\s+(\w+)/m', $rendered, $declared);
-
-            // Functions and constants have their own symbol tables, so neither
-            // can collide with a class name. Dropped here rather than left to
-            // shortNameTaken, which only skips them on the side it is asked
-            // about: a `use function` line reaching it as the candidate has
-            // its prefix stripped with the namespace, and `money` then reads
-            // as taken by an earlier `use App\...\Money`. The file compiles
-            // and no name the caller could pick would change it.
-            $classes = array_values(array_filter(
-                $imports[1],
-                fn (string $import): bool => preg_match('/^(function|const)\s/i', trim($import)) !== 1
-            ));
-
-            // An import the command adds that the stub already carries is the
-            // same import, not a collision. Without this, a stub edited to
-            // bake in HasFactory would refuse every aggregate name there is,
-            // and advise picking another one.
-            $added = array_diff(array_map('trim', $also), array_map('trim', $classes));
-
-            // A migration declares an anonymous class, and the route stubs
-            // declare nothing at all.
-            $names = [...$classes, ...$added, ...$declared[1]];
-
-            foreach ($names as $index => $name) {
-                $earlier = array_slice($names, 0, $index);
-
-                if (! $this->shortNameTaken($earlier, $name)) {
-                    continue;
-                }
-
-                $other = '';
-
-                foreach ($earlier as $candidate) {
-                    if ($this->shortNameTaken([$candidate], $name)) {
-                        $other = trim($candidate);
-
-                        break;
-                    }
-                }
-
-                // An import this command adds afterwards lands in one file,
-                // not in every stub the glob matched, so naming the stub the
-                // sweep happened to reach first sends the reader to a file
-                // that was never the problem. Name the two things instead.
-                $injected = in_array($name, $added, true) || in_array($other, $added, true);
-                $short = class_basename(trim($name));
-
-                $this->components->error($injected
-                    ? "This run would put two things under the name [{$short}] in one file: [{$other}] and [".trim($name).'].'
-                    : 'Generating ['.basename($path).'] would put two things under the name ['.$short.'].');
-                $this->components->bulletList([
-                    'PHP refuses to compile a file that does, whether they are two imports or an import and the class itself.',
-                    'Pick another name.',
-                ]);
-
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Whether one of the existing imports already answers to the short name
-     * the given class would introduce.
-     *
-     * @param  list<string>  $imports  the text of each `use` line, without `use` or the semicolon
-     */
-    protected function shortNameTaken(array $imports, string $class): bool
-    {
-        $shortName = function (string $import): string {
-            $import = trim($import);
-
-            // `use Ours\Widget as TheirWidget;` occupies TheirWidget, not Widget.
-            if (preg_match('/\s+as\s+(\S+)$/i', $import, $alias) === 1) {
-                return $alias[1];
-            }
-
-            return substr((string) strrchr('\\'.$import, '\\'), 1);
-        };
-
-        foreach ($imports as $import) {
-            // Function and constant imports live in their own symbol tables,
-            // so neither can collide with a class name.
-            if (preg_match('/^(function|const)\s/i', trim($import)) === 1) {
-                continue;
-            }
-
-            // strcasecmp, not ===. PHP resolves class names case-insensitively,
-            // so `use Ours\HAsFactory;` beside Eloquent's HasFactory is the
-            // same fatal, and Str::studly leaves inner case alone: an aggregate
-            // asked for as `hAs` arrives here as `HAs`.
-            if (strcasecmp($shortName($import), $shortName($class)) === 0) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Inserts an import in the order Pint's ordered_imports fixer expects.
-     *
-     * Returns null when the import cannot be placed, so the caller reports a
-     * failure instead of leaving an unqualified reference behind.
-     */
-    protected function withImport(string $contents, string $class): ?string
-    {
-        if (str_contains($contents, "use {$class};")) {
-            return $contents;
-        }
-
-        preg_match_all('/^use (.+);$/m', $contents, $matches);
-
-        // Two imports resolving to one short name is a compile-time fatal, and
-        // it takes down every file that loads this one. The check above
-        // compares whole names, so on its own it is happy to put
-        // Ours\Widget next to Theirs\Widget.
-        //
-        // The refusal belongs here rather than in each caller. It was written
-        // out once before, as a comment on the one append that had already
-        // caused the fatal, and the other five call sites carried on importing
-        // into files whose contents are not ours to predict. An invariant kept
-        // by whoever remembers it is not kept.
-        if ($this->shortNameTaken($matches[1], $class)) {
-            return null;
-        }
-
-        $imports = [...$matches[1], $class];
-
-        // Pint compares the namespace separator as a space, so a byte-wise
-        // sort() would order InvoicesLines before Invoices and fail the lint.
-        usort($imports, fn (string $a, string $b): int => str_replace('\\', ' ', $a) <=> str_replace('\\', ' ', $b));
-
-        $block = implode('', array_map(fn (string $i): string => "use {$i};\n", $imports));
-
-        // preg_replace would read backslash sequences in the replacement as
-        // backreferences, silently mangling namespaces such as \20.
-        if ($matches[1] !== []) {
-            // Every `use` line is collected above, so every one of them has to
-            // go: rewriting only the first contiguous run left the imports of
-            // any later group duplicated, and duplicate imports are fatal.
-            $written = false;
-
-            $result = preg_replace_callback(
-                '/^use .+;\n/m',
-                function () use ($block, &$written): string {
-                    if ($written) {
-                        return '';
-                    }
-
-                    $written = true;
-
-                    return $block;
-                },
-                $contents
-            );
-
-            // Collapse the blank lines left where a later group used to be.
-            return preg_replace("/\n{3,}/", "\n\n", (string) $result);
-        }
-
-        // No imports yet: open a block after the namespace declaration, or
-        // after the opening tag when the file has none.
-        if (preg_match('/^namespace .+;\n/m', $contents) === 1) {
-            return preg_replace_callback('/^namespace .+;\n/m', fn (array $m): string => $m[0]."\n".$block, $contents, 1);
-        }
-
-        if (str_starts_with($contents, "<?php\n")) {
-            return preg_replace_callback('/^<\?php\n/', fn (array $m): string => $m[0]."\n".$block, $contents, 1);
-        }
-
-        return null;
-    }
-
-    /**
-     * Appends an entry to a list literal, whatever shape it is written in.
-     *
-     * $open is the literal that opens the list, e.g. `return [` or
-     * `array $bindings = [`, and $indent the indentation of its closing
-     * bracket.
-     *
-     * Returns null when the list cannot be found, so the caller reports a
-     * failure instead of writing the file back unchanged and calling it done.
-     */
-    protected function appendToList(string $contents, string $open, string $entry, string $indent = '    '): ?string
-    {
-        if (str_contains($contents, $open.'];')) {
-            return str_replace($open.'];', $open."\n{$entry}\n{$indent}];", $contents);
-        }
-
-        // Already populated and spread over several lines.
-        $multiline = preg_replace_callback(
-            '/('.preg_quote($open, '/').'\n)(.*?)(^'.preg_quote($indent, '/').'\];)/ms',
-            fn (array $m): string => $m[1].$m[2].$entry."\n".$m[3],
-            $contents,
-            1,
-            $count
-        );
-
-        if ($count > 0) {
-            return $multiline;
-        }
-
-        // Declared inline, e.g. `public array $bindings = [Foo::class => Bar::class];`
-        $inline = preg_replace_callback(
-            '/'.preg_quote($open, '/').'(.*?)\];/s',
-            function (array $m) use ($open, $entry, $indent): string {
-                $body = $m[1];
-
-                // A body that is only whitespace or comments holds no elements:
-                // emitting it as one produces `[,` and a parse error.
-                $hasElements = trim((string) preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $body)) !== '';
-
-                if (! $hasElements) {
-                    return $open.rtrim($body)."\n{$entry}\n{$indent}];";
-                }
-
-                $existing = rtrim(trim($body), ',');
-
-                return $open."\n{$indent}    {$existing},\n{$entry}\n{$indent}];";
-            },
-            $contents,
-            1,
-            $count
-        );
-
-        return $count > 0 ? $inline : null;
     }
 }

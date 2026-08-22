@@ -14,7 +14,7 @@ beforeEach(function () {
     $this->providers = base_path('bootstrap/providers.php');
     $this->providersBackup = File::get($this->providers);
 
-    // BoundedContext is only ever created if the collision guard stops
+    // BoundedContext is only ever created if the guard on that name stops
     // working, and a leaked context joins $contexts in the arch suite, so it is
     // guarded and torn down like the two this file means to create.
     foreach (['ScaffoldFixture', 'NestedScaffoldFixture', 'BoundedContext'] as $fixture) {
@@ -45,36 +45,79 @@ test('it scaffolds the context and registers its provider', function () {
 
     expect(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php'))->toBeFile();
 
-    expect(File::get($this->providers))->toContain('\App\ScaffoldFixture\ScaffoldFixtureServiceProvider::class,');
+    // Registered through Laravel's own helper, the one make:provider uses.
+    // It writes every entry fully qualified with no import, which is why this
+    // is the one place these commands still edit a file they did not create.
+    expect(File::get($this->providers))
+        ->toContain('App\ScaffoldFixture\ScaffoldFixtureServiceProvider::class,')
+        ->and(php_parses($this->providers))->toBeTrue();
 });
 
-test('it refuses a context whose provider name collides with the stub import', function () {
-    // The provider stub imports BoundedContextServiceProvider and declares
-    // <Context>ServiceProvider. This provider is loaded from
-    // bootstrap/providers.php, so a fatal in it takes the application down,
-    // and this command was the one generator of four that never asked.
+test('it refuses the one name whose provider would extend itself', function () {
+    // The provider stub imports the base provider and declares
+    // <Context>ServiceProvider beside it, and this is the only command that
+    // registers what it writes: the fatal would be in a file loaded from
+    // bootstrap/providers.php, taking down artisan along with the app.
     $this->artisan('ldd:make:bounded-context', ['name' => 'BoundedContext'])
-        ->expectsOutputToContain('would put two things under the name')
+        ->expectsOutputToContain('would produce a provider that extends itself')
         ->assertFailed();
 
     expect(app_path('BoundedContext'))->not->toBeDirectory()
         ->and(File::get($this->providers))->not->toContain('BoundedContext');
 });
 
-test('it registers a provider whose short name the list already imports', function () {
-    // The same fatal as in a context provider, in the one file where it means
-    // nothing boots at all. A context called Billing wants a
-    // BillingServiceProvider, and this file may already import one.
-    File::put($this->providers, str_replace(
-        'use App\Shared',
-        "use App\Elsewhere\ScaffoldFixtureServiceProvider;\nuse App\Shared",
-        File::get($this->providers)
-    ));
+test('the names it refuses are refused however they are typed', function (string $name, string $reason) {
+    // PHP resolves class names without case, so `boundedcontext` studlies to
+    // `Boundedcontext` and still declares the same class as `BoundedContext`,
+    // and Str::studly leaves inner case alone. Compared with ===, both guards
+    // let an ordinary lowercase name straight through, and the first one ends
+    // with an unbootable provider registered in bootstrap/providers.php.
+    $this->artisan('ldd:make:bounded-context', ['name' => $name])
+        ->expectsOutputToContain($reason)
+        ->assertFailed();
 
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    expect(File::get($this->providers))->not->toContain('Boundedcontext');
+})->with([
+    'lowercase reserved' => ['boundedcontext', 'would produce a provider that extends itself'],
+    'mixed case reserved' => ['bOundedContext', 'would produce a provider that extends itself'],
+    'mixed case Shared' => ['sHared', 'already exists as the application foundation layer'],
+]);
 
-    expect(php_parses($this->providers))->toBeTrue();
+test('the provider stub imports nothing but the base provider', function () {
+    // What makes one reserved name enough. A second import in the stub is a
+    // second name that would collide, and it would be found the way the first
+    // one was: by taking the application down.
+    preg_match_all('/^use (.+);$/m', File::get(base_path('stubs/bounded-context.provider.stub')), $imports);
+
+    expect($imports[1])->toBe(['ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider']);
 });
+
+test('the provider stub accepts the list form its own report tells you to write', function () {
+    // ldd:make:event-handler prints the array form when an event already has a
+    // handler, and ComplexHeart's bootEvents() listens for every entry in it.
+    // Annotated more narrowly than the parent, PHPStan then rejects a provider
+    // this same toolchain generated four steps earlier.
+    expect(File::get(base_path('stubs/bounded-context.provider.stub')))
+        ->toContain('@var array<class-string, class-string|array<int, class-string>>');
+});
+
+test('it refuses a context whose real spelling on disk is different', function () {
+    // The filesystem answers yes to any casing on macOS, so this found the
+    // real IdentityAndAccess, called its provider "exists, skipped", and then
+    // registered App\Identityandaccess\IdentityandaccessServiceProvider beside
+    // the real entry: the same context booted twice here, and nothing that
+    // resolves on Linux.
+    $this->artisan('ldd:make:bounded-context', ['name' => 'identityandaccess'])
+        ->expectsOutputToContain('The bounded context on disk is [IdentityAndAccess]')
+        ->assertFailed();
+
+    expect(File::get($this->providers))->not->toContain('Identityandaccess');
+})->skip(
+    // Evaluated at collection time, before the application boots, so no
+    // base_path() here. A case-sensitive filesystem cannot reach this state.
+    ! is_dir(dirname(__DIR__, 3).'/app/identityandaccess'),
+    'the filesystem is case-sensitive, so the name cannot collide'
+);
 
 test('it creates no layer directories', function () {
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
@@ -97,7 +140,11 @@ test('route files are opt in', function () {
 });
 
 test('it declares the route files it generates', function () {
+    // A context comes out fully wired, which is what earns every later
+    // command the right to wire nothing: the provider is written in the same
+    // run, from the same options, so it already declares them.
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true, '--api' => true])
+        ->doesntExpectOutputToContain('Register the route files')
         ->assertSuccessful();
 
     expect(app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes/web.php'))->toBeFile()
@@ -110,10 +157,15 @@ test('it declares the route files it generates', function () {
 
 test('re-running never rewrites the provider', function () {
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true])
-        ->assertSuccessful();
 
     $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    File::put($provider, str_replace(
+        'public array $bindings = [];',
+        "public array \$bindings = [\n        Something::class => SomethingElse::class,\n    ];",
+        File::get($provider)
+    ));
+
     $before = File::get($provider);
 
     // Asking for route files on a context already in use is the natural way
@@ -129,12 +181,49 @@ test('re-running creates the missing route file and says how to declare it', fun
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
 
     // The file alone is never loaded: the provider has to declare it, and
-    // the provider is the one thing this command will not touch.
+    // the provider written by an earlier run is one this run will not touch.
+    // The only symptom of getting this wrong is a 404.
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true])
+        ->expectsOutputToContain('in $routes')
         ->expectsOutputToContain("'web' => [__DIR__.'/Shared/Infrastructure/Http/Routes/web.php'],")
         ->assertSuccessful();
 
     expect(app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes/web.php'))->toBeFile();
+});
+
+test('it asks for the $routes entry even when it wrote nothing at all', function () {
+    // The state that most needs saying, and the one keying this on what put()
+    // wrote used to skip in silence: the provider and the route file are both
+    // there, and nothing knows whether $routes names the file. Reached by
+    // creating the route file by hand, exactly as the comment the provider
+    // stub ships instructs, and then running this to have the tool sort it
+    // out. Undeclared, bootRoutes() never loads it and every route in it 404s,
+    // over a run that printed green.
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+
+    $file = app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes/web.php');
+    File::ensureDirectoryExists(dirname($file));
+    File::put($file, "<?php\n");
+
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true])
+        ->expectsOutputToContain('exists, skipped')
+        ->expectsOutputToContain('in $routes')
+        ->expectsOutputToContain("'web' => [__DIR__.'/Shared/Infrastructure/Http/Routes/web.php'],")
+        // The one property in the whole report that may not be declared at
+        // all: this context was created without a route flag, so it carries
+        // $routes as a commented example. An entry pasted into a class body
+        // with no array around it is a parse error.
+        ->expectsOutputToContain('replace it with a real')
+        ->assertSuccessful();
+});
+
+test('it says nothing about routes when no route file was asked for', function () {
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])
+        ->expectsOutputToContain('exists, skipped')
+        ->doesntExpectOutputToContain('in $routes')
+        ->assertSuccessful();
 });
 
 test('it normalises the context name', function () {
@@ -152,25 +241,18 @@ test('it registers the provider however the list is written', function () {
         ->and(php_parses($this->providers))->toBeTrue();
 });
 
-test('it fails loudly when the provider list cannot be found', function () {
-    File::put($this->providers, "<?php\n\nreturn array(App\Shared\SharedServiceProvider::class);\n");
+test('it fails loudly when there is no provider list to register in', function () {
+    File::delete($this->providers);
 
     // Reporting success here leaves a context whose bindings, migrations and
-    // routes are never loaded, and a stale import would make every later run
-    // answer "already registered".
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertFailed();
-
-    expect(File::get($this->providers))->not->toContain('ScaffoldFixture');
-});
-
-test('a provider already listed fully qualified is not added again', function () {
-    // Laravel generates bootstrap/providers.php with no imports at all, so
-    // this is the shape a fresh application actually ships.
-    File::put($this->providers, "<?php\n\nreturn [\n    App\Shared\SharedServiceProvider::class,\n    App\ScaffoldFixture\ScaffoldFixtureServiceProvider::class,\n];\n");
-
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
-
-    expect(substr_count(File::get($this->providers), 'ScaffoldFixtureServiceProvider::class'))->toBe(1);
+    // routes are never loaded.
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])
+        ->expectsOutputToContain('by hand')
+        ->assertFailed();
+})->after(function () {
+    // Restored here as well: the afterEach above writes the backup, but a
+    // deleted file has to exist again before anything else in the suite boots.
+    File::put(base_path('bootstrap/providers.php'), test()->providersBackup);
 });
 
 test('a context is not mistaken for one whose name ends with it', function () {
@@ -182,7 +264,7 @@ test('a context is not mistaken for one whose name ends with it', function () {
     $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
 
     expect(File::get($this->providers))
-        ->toContain("\n    \App\ScaffoldFixture\ScaffoldFixtureServiceProvider::class,")
+        ->toContain('App\ScaffoldFixture\ScaffoldFixtureServiceProvider::class,')
         ->and(php_parses($this->providers))->toBeTrue();
 });
 

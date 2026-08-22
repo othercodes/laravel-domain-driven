@@ -20,7 +20,6 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
         "mobiledetect/mobiledetectlib": "^4.8",
-        "nikic/php-parser": "^5.8",
         "othercode/laravel-version": "^0.3",
         "tightenco/ziggy": "^2.0"
     },

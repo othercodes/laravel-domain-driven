@@ -4,19 +4,22 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
-use App\Shared\Domain\BuildsFromAttributes;
-use App\Shared\Infrastructure\Console\Support\SourceFile;
 use Illuminate\Support\Str;
 
 /**
  * Class MakeAggregateCommand
  *
- * Scaffolds an aggregate inside an existing bounded context, and wires it
- * into that context's service provider.
+ * Scaffolds an aggregate inside an existing bounded context.
  *
  * Only the core is generated: the aggregate root, its repository contract
  * and Eloquent implementation, and its exceptions. Everything else is opt
  * in, because real aggregates rarely need every layer.
+ *
+ * Nothing is wired. The files this writes are coherent among themselves, and
+ * what has to be registered elsewhere is printed at the end: the repository
+ * binding, the migrations path, any console command, the seeder, the routes.
+ * The provider is a file this command did not create and does not read, and
+ * that is what keeps a bad name here from taking the application down.
  *
  * @author Unay Santisteban <usantisteban@othercode.io>
  */
@@ -25,9 +28,9 @@ final class MakeAggregateCommand extends ScaffoldCommand
     protected $signature = 'ldd:make:aggregate
         {context : The bounded context it belongs to, e.g. Billing}
         {name : The aggregate root name, singular, e.g. Invoice}
-        {--migration : Add a migration and register its path}
+        {--migration : Add a migration}
         {--factory : Add a model factory}
-        {--seeder : Add a seeder and say how to register it}
+        {--seeder : Add a seeder}
         {--events : Add a Created domain event and record it}
         {--requests : Add a form request}
         {--web : Add an Inertia controller}
@@ -36,15 +39,10 @@ final class MakeAggregateCommand extends ScaffoldCommand
         {--mail=* : A mailable in Application/Mail, e.g. --mail=InvoicePaid}
         {--job=* : A queued job in Application/Jobs}
         {--notification=* : A notification in Application/Notifications}
-        {--command=* : An Artisan command in Infrastructure/Console/Commands, wired into $commands}
+        {--command=* : An Artisan command in Infrastructure/Console/Commands}
         {--table= : Table name, defaults to the pluralised aggregate}';
 
     protected $description = 'Create an aggregate inside a bounded context';
-
-    /**
-     * The contract an aggregate declares so a factory can call new() on it.
-     */
-    private const BUILDS_FROM_ATTRIBUTES = BuildsFromAttributes::class;
 
     private string $context;
 
@@ -55,6 +53,8 @@ final class MakeAggregateCommand extends ScaffoldCommand
     private string $variable;
 
     private string $table;
+
+    private bool $hasFactory;
 
     public function handle(): int
     {
@@ -84,30 +84,16 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        // Asked of the stubs as this run would render them, before anything
-        // is written. The names that can collide are the ones interpolated
-        // in, so an unrendered stub has nothing useful to compare.
-        //
-        // --factory adds HasFactory to the model after the stub is rendered,
-        // so the stubs alone do not know about it.
-        // seederUses is asked for whether or not --factory was passed, for the
-        // same reason every stub is asked whether or not its flag was: the
-        // guard answering differently depending on the flags is a worse thing
-        // to reason about than a refused name nobody should want.
-        if ($this->refusesCollidingNames('aggregate.*', $this->replacements([
-            '{{ seederUses }}' => $this->seederUses(),
-        ]), ['Illuminate\Database\Eloquent\Factories\HasFactory'])) {
-            return self::FAILURE;
-        }
-
-        if ($this->context === self::SHARED_CONTEXT) {
+        if ($this->refuses($this->context, self::SHARED_CONTEXT)) {
             $this->components->error('[Shared] is the foundation layer, not a bounded context that can own aggregates.');
 
             return self::FAILURE;
         }
 
-        // A directory alone is not a context: it also has to be wired by a
-        // provider named after it, which is what this command edits.
+        // An aggregate needs a context the way a handler needs an aggregate.
+        // Creating one from here would be generating upwards, and the context
+        // is also the one thing this command never touches again: it only
+        // prints what to add to its provider.
         if (! $this->files->exists(app_path("{$this->context}/{$this->context}ServiceProvider.php"))) {
             $this->components->error("The bounded context [{$this->context}] does not exist.");
             $this->components->bulletList([
@@ -117,51 +103,36 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        $path = app_path("{$this->context}/{$this->plural}");
-
-        // Running this again is how you add an option you skipped, so nothing
-        // already on disk is rewritten: the model may have been worked on and
-        // the migration may already have been applied.
-        $modelExisted = $this->files->exists("{$path}/Domain/{$this->aggregate}.php");
-
-        // A file on disk is not the same as an aggregate that can be read.
-        // Every question below answers false for a file that does not parse
-        // and for one that holds no class at all, and false read off either is
-        // not a fact about the aggregate: the table guard would wave a
-        // mismatched migration through, and the hints would advise adding what
-        // is already there. So the question asked is whether the class was
-        // found, not whether the file parsed.
-        $model = SourceFile::at("{$path}/Domain/{$this->aggregate}.php");
-
-        if ($modelExisted && ! $model->declaresClass($this->aggregate)) {
-            $reason = $model->parsed()
-                ? "declares no class {$this->aggregate}"
-                : 'does not parse';
-
-            $this->components->error("[{$this->aggregate}] could not be read: {$this->relative("{$path}/Domain/{$this->aggregate}.php")} {$reason}.");
+        if (($onDisk = $this->misspelling($this->context)) !== null) {
+            $this->components->error("The bounded context on disk is [{$onDisk}], not [{$this->context}].");
             $this->components->bulletList([
-                'Fix it, then run this again.',
+                "Run it again as: {$onDisk}",
             ]);
 
             return self::FAILURE;
         }
 
-        // The model is never rewritten, so a migration for a table it does not
-        // declare creates one nothing reads, next to the one it does use.
-        if ($this->wants('migration') && $modelExisted) {
-            $declared = $model->propertyString('table');
+        if (($onDisk = $this->misspelling($this->plural, $this->context)) !== null) {
+            $this->components->error("The aggregate directory on disk is [{$onDisk}], not [{$this->plural}].");
+            $this->components->bulletList([
+                'Run it again with the aggregate name that pluralises to '.$onDisk.'.',
+            ]);
 
-            if ($declared !== null && $declared !== $this->table) {
-                $this->components->error("[{$this->aggregate}] declares table [{$declared}], not [{$this->table}].");
-                $this->components->bulletList([
-                    "Pass --table={$declared}, or change the model's \$table by hand first.",
-                ]);
-
-                return self::FAILURE;
-            }
+            return self::FAILURE;
         }
 
-        if ($this->wants('migration') && ($owner = $this->tableOwnedElsewhere()) !== null) {
+        // The spelling guard runs first: compared as strings, a mis-cased
+        // aggregate's own migrations directory reads as another aggregate's,
+        // so the run was refused for a collision with itself and told to
+        // rename its table.
+        // Asked whatever the flags say. The collision is a property of the
+        // table, not of this run: with --migration it is fatal, because two
+        // create migrations abort migrate on a fresh database, and without it
+        // the aggregate quietly shares a table another context owns, which is
+        // the quieter half and used to go unmentioned.
+        $owner = $this->tableOwnedElsewhere();
+
+        if ($owner !== null && $this->wants('migration')) {
             $this->components->error("Table [{$this->table}] already has a create migration in [{$owner}].");
             $this->components->bulletList([
                 'Pass a different name with: --table='.Str::snake($this->context)."_{$this->table}",
@@ -170,31 +141,121 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        if (! $this->writeCore($path)) {
+        $path = app_path("{$this->context}/{$this->plural}");
+
+        // One aggregate root per directory. Str::plural leaves a plural alone,
+        // so `ldd:make:aggregate IdentityAndAccess Users` resolves to the
+        // shipped Users aggregate and used to drop a second root, contract and
+        // repository beside User, mapped to the same table with none of its
+        // casts. target() sends you here by name when a use case is asked for
+        // with the plural, which is the name ls shows.
+        //
+        // Globbed rather than keyed on the directory existing, so re-running to
+        // add a flag you skipped still works.
+        $roots = array_map('basename', $this->files->glob("{$path}/Domain/*.php") ?: []);
+
+        if ($roots !== [] && ! in_array("{$this->aggregate}.php", $roots, true)) {
+            $this->components->error("[{$this->plural}] already holds the aggregate [".basename($roots[0], '.php').'].');
+            $this->components->bulletList([
+                'One aggregate root per directory: pick a name that pluralises differently.',
+            ]);
+
             return self::FAILURE;
         }
 
+        // Running this again is how you add an option you skipped, so nothing
+        // already on disk is rewritten: the model may have been worked on and
+        // the migration may already have been applied.
+        $modelExisted = $this->files->exists("{$path}/Domain/{$this->aggregate}.php");
+
+        // Nothing rewrites a seeder that is already there, so adding --factory
+        // later renders the live body and throws it away, leaving the
+        // commented placeholder. db:seed then reports the seeder as run and
+        // inserts nothing.
+        $seederExisted = $this->files->exists("{$path}/Infrastructure/Persistence/Seeders/{$this->aggregate}Seeder.php");
+
+        // And the body follows the factory on disk, not the flag this run
+        // carries: --factory first and --seeder second rendered the dead
+        // placeholder over a factory that was right there.
+        $this->hasFactory = $this->wants('factory')
+            || $this->files->exists("{$path}/Domain/Factories/{$this->aggregate}Factory.php");
+
+        $this->writeCore($path);
         $this->writeOptional($path);
 
         // Threaded through rather than kept on the command: Artisan reuses the
         // instance between calls in the same process, so a property here would
         // carry one run's console commands into the next.
         $delegated = $this->writeDelegated();
-        $wired = $this->wireProvider($delegated['commands']);
 
         $this->newLine();
-        $this->components->info("Aggregate [{$this->aggregate}] ".($modelExisted ? 'updated' : 'created')." in [{$this->context}].");
+        $this->components->info("Aggregate [{$this->aggregate}] ".($modelExisted ? 'updated' : 'created')." in [{$this->context}]. Nothing was wired.");
 
-        $this->printModelHints($model, $modelExisted);
-        $this->printEventHints($path);
-        $this->printSeederHints();
-        $this->printRouteHints();
+        $this->reportProvider($delegated['commands']);
+        $this->reportModel($modelExisted);
+        $this->reportSeeder($seederExisted);
 
-        // The files exist but the context does not know about them, so a
-        // script chaining on this command must not treat it as done. A name
-        // this command refused counts the same: something was asked for and
-        // is not there.
-        return $wired && $delegated['complete'] ? self::SUCCESS : self::FAILURE;
+        if ($owner !== null) {
+            $this->note(
+                "Table [{$this->table}] already has a create migration in {$owner}.",
+                ['// This aggregate would share it. Pass --table='.Str::snake($this->context)."_{$this->table} if that is not what you meant."]
+            );
+        }
+        $this->reportEvents();
+        $this->reportRoutes();
+
+        $this->report();
+
+        // A name this command refused counts as a failure: something was asked
+        // for and is not there, and a chained script must not carry on.
+        return $delegated['complete'] ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * Everything that goes into the context's service provider.
+     *
+     * @param  list<string>  $consoleCommands
+     */
+    private function reportProvider(array $consoleCommands): void
+    {
+        $file = app_path("{$this->context}/{$this->context}ServiceProvider.php");
+
+        $contract = "App\\{$this->context}\\{$this->plural}\\Domain\\Contracts\\{$this->aggregate}Repository";
+        $eloquent = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\Eloquent{$this->aggregate}Repository";
+
+        // Without this the aggregate resolves nothing, and silently: the
+        // container throws only when something first asks for the contract.
+        $this->wire(
+            "the [{$this->aggregate}] repository",
+            $file,
+            'bindings',
+            ["\\{$contract}::class => \\{$eloquent}::class,"]
+        );
+
+        if ($this->wants('migration')) {
+            // A migration in a directory nothing registers is never run, and
+            // `migrate` reports nothing to migrate.
+            $this->wire(
+                'the migrations directory',
+                $file,
+                'migrations',
+                ["__DIR__.'/{$this->plural}/Infrastructure/Persistence/Migrations',"]
+            );
+        }
+
+        // array_unique because the same flag can be passed twice in one run.
+        $commands = array_values(array_unique($consoleCommands));
+
+        if ($commands !== []) {
+            // Laravel only autodiscovers app/Console/Commands, so a command
+            // that is not declared here simply does not exist.
+            $this->wire(
+                'the console commands',
+                $file,
+                'commands',
+                array_map(fn (string $class): string => "\\{$class}::class,", $commands)
+            );
+        }
     }
 
     /**
@@ -202,134 +263,110 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * rewritten once it exists. Adding either option later costs a line or
      * two by hand, which is the price of never losing what the model grew.
      */
-    private function printModelHints(SourceFile $model, bool $modelExisted): void
+    private function reportModel(bool $modelExisted): void
     {
         if (! $modelExisted) {
             return;
         }
 
-        // What the model already carries decides this, not the flags: running
-        // the same command twice would otherwise advise redeclaring
-        // newFactory(), which is fatal, and registering the event twice. It is
-        // the instance handle() already read, so a model that does not parse
-        // never reaches here to be read as carrying nothing.
+        // Every class written out in full. These lines go into a model this
+        // run did not write, so the imports it carries are not ours to
+        // predict, and the classes named live in Domain\Events and
+        // Domain\Factories rather than beside it: pasted short, they resolve
+        // to the model's own namespace and to nothing at all.
+        $event = "App\\{$this->context}\\{$this->plural}\\Domain\\Events\\{$this->aggregate}Created";
+        $factory = "App\\{$this->context}\\{$this->plural}\\Domain\\Factories\\{$this->aggregate}Factory";
+
         $lines = [];
 
-        if ($this->wants('events') && ! $model->calls('registerDomainEvent')) {
-            $lines[] = "in new(): \${$this->variable}->registerDomainEvent({$this->aggregate}Created::new(\${$this->variable}->id));";
+        if ($this->wants('events')) {
+            $lines[] = "in new(): \${$this->variable}->registerDomainEvent(\\{$event}::new(\${$this->variable}->id));";
         }
 
-        if ($this->wants('factory') && ! $model->declaresMethod('newFactory')) {
-            $lines[] = 'use HasFactory; (imported from Illuminate\Database\Eloquent\Factories)';
-            $lines[] = "protected static function newFactory(): {$this->aggregate}Factory { return {$this->aggregate}Factory::new(); }";
+        if ($this->wants('factory')) {
+            $lines[] = 'in the class body: use \Illuminate\Database\Eloquent\Factories\HasFactory;';
+            $lines[] = "protected static function newFactory(): \\{$factory} { return \\{$factory}::new(); }";
+            // An aggregate written before the factory base class existed
+            // declares new(): self and implements nothing, and the factory just
+            // generated for it does not type check against AggregateFactory's
+            // template. Both halves only work together: the interface returns
+            // static, so self would not satisfy it.
+            $lines[] = 'and, in its implements list if it is not there: \App\Shared\Domain\BuildsFromAttributes';
+            $lines[] = 'with new() returning static and building with new static(...)';
         }
 
-        // An aggregate written before the factory base class existed declares
-        // new(): self and implements nothing, and the factory just generated
-        // for it does not type check against AggregateFactory's template. Both
-        // halves are named because they only work together: the interface
-        // returns static, so self would not satisfy it.
-        if ($this->wants('factory') && ! $model->implementsInterface(self::BUILDS_FROM_ATTRIBUTES)) {
-            $lines[] = 'implements BuildsFromAttributes (imported from App\Shared\Domain)';
-            $lines[] = 'and change new() to return static, building with new static(...)';
+        // Also on --table alone, which otherwise does nothing at all here: the
+        // model is not rewritten and no migration is generated, so the run
+        // accepts the option and discards it without a word.
+        if ($this->wants('migration') || $this->option('table')) {
+            // The model is never rewritten, so a migration for a table it does
+            // not declare creates one nothing reads, beside the one it uses.
+            $lines[] = "and check it declares: protected \$table = '{$this->table}';";
         }
 
         if ($lines === []) {
             return;
         }
 
-        $this->newLine();
-        $this->line("  <fg=yellow>{$this->aggregate} was left as it is. Add to it by hand:</>");
+        $this->note(
+            "[{$this->aggregate}] already existed and was left as it is. Add to app/{$this->context}/{$this->plural}/Domain/{$this->aggregate}.php what it does not already have:",
+            $lines
+        );
+    }
 
-        foreach ($lines as $line) {
-            $this->line("  <fg=gray>{$line}</>");
+    /**
+     * A seeder nothing lists never runs, and db:seed reports success either
+     * way. Which of the two lists it belongs in is a decision: reference data
+     * another seeder depends on has to come first, and sample data has no
+     * business running in production at all.
+     */
+    private function reportSeeder(bool $seederExisted): void
+    {
+        if (! $this->wants('seeder')) {
+            return;
         }
+
+        $class = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\Seeders\\{$this->aggregate}Seeder";
+
+        $entries = ["\\{$class}::class,  // or \$fixtures, if it is sample data"];
+
+        // Registering a seeder whose body is still the placeholder is worse
+        // than not registering it: db:seed lists it as run and inserts nothing.
+        if ($seederExisted && $this->wants('factory')) {
+            $entries[] = '';
+            $entries[] = "// {$this->aggregate}Seeder was already on disk and was left as it is: check its run()";
+            $entries[] = '// is not still the commented-out placeholder before you register it.';
+        }
+
+        $this->wire(
+            "[{$this->aggregate}Seeder]",
+            app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php'),
+            'seeders',
+            $entries
+        );
     }
 
     /**
      * A recorded domain event does nothing until something publishes it, and
      * in this application that is the job of a use case: the repository only
      * persists. Nothing generated here closes that loop, and an event that is
-     * never published fails the way everything else in these commands is
-     * built to prevent: silently.
+     * never published fails the way everything else is built to prevent:
+     * silently.
      */
-    private function printEventHints(string $path): void
+    private function reportEvents(): void
     {
         if (! $this->wants('events')) {
             return;
         }
 
-        // What the aggregate's application layer already does decides this,
-        // asked through the shared helper so this command and ldd:make:use-case
-        // cannot answer it differently.
-        $answer = $this->publishesDomainEvents("{$path}/Application");
-
-        if ($answer['publishes']) {
-            return;
-        }
-
-        // One of them may well be the use case that publishes, so the advice
-        // below would be telling somebody to write what they already have.
-        if ($answer['unreadable'] !== []) {
-            $this->newLine();
-            $this->line("  <fg=yellow>Could not tell whether anything publishes {$this->aggregate}Created: these do not parse:</>");
-
-            foreach ($answer['unreadable'] as $file) {
-                $this->line("  <fg=gray>{$file}</>");
-            }
-
-            return;
-        }
-
-        $this->newLine();
-        $this->line("  <fg=yellow>Nothing publishes {$this->aggregate}Created. Add a use case in {$this->plural}/Application that does:</>");
-        $this->line("  <fg=gray>\${$this->variable} = \$this->repository->save({$this->aggregate}::new(\$input));</>");
-        $this->line("  <fg=gray>\${$this->variable}->publishDomainEvents(\$this->eventBus);  // ComplexHeart\\Domain\\Contracts\\Events\\EventBus</>");
-        $this->line('  <fg=gray>// both inside DB::transaction, so a failing listener cannot leave the aggregate persisted</>');
-    }
-
-    /**
-     * A seeder nothing lists never runs, and db:seed reports success either
-     * way. This is printed rather than wired because seeders run in the order
-     * DatabaseSeeder lists them, and appending to the end is a guess at where
-     * this one belongs: reference data another seeder depends on has to go
-     * first, and only the developer knows whether this is that.
-     */
-    private function printSeederHints(): void
-    {
-        if (! $this->wants('seeder')) {
-            return;
-        }
-
-        $file = app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php');
-        $class = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\Seeders\\{$this->aggregate}Seeder";
-
-        $seeder = SourceFile::at($file);
-
-        // What DatabaseSeeder already lists decides this, not the flag, so
-        // re-running to add another option does not advise a second entry.
-        if ($seeder->references($class)) {
-            return;
-        }
-
-        $this->newLine();
-
-        // It may already list the entry, so say what is wrong rather than
-        // advise adding a duplicate to a file that has to be fixed first.
-        if ($this->files->exists($file) && ! $seeder->parsed()) {
-            $this->line("  <fg=yellow>{$this->relative($file)} does not parse, so whether it lists {$this->aggregate}Seeder could not be checked.</>");
-
-            return;
-        }
-
-        if (! $this->files->exists($file)) {
-            $this->line("  <fg=yellow>{$this->aggregate}Seeder will not run: no DatabaseSeeder at {$this->relative($file)}.</>");
-
-            return;
-        }
-
-        $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
-        $this->line("  <fg=gray>{$this->aggregate}Seeder::class,  // in \$seeders, or \$fixtures if it is sample data</>");
+        $this->note(
+            "Unless a use case already does it, nothing publishes {$this->aggregate}Created. Add one with:",
+            [
+                "php artisan ldd:make:use-case {$this->context} {$this->aggregate} Create{$this->aggregate} --publishes",
+                '',
+                "// or handle it: php artisan ldd:make:event-handler {$this->context} {$this->aggregate} <Handler>",
+            ]
+        );
     }
 
     /**
@@ -337,9 +374,8 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * routes live in a file the developer owns, and the page lives outside
      * app/ under a path that vite.config.js decides. So they get printed.
      */
-    private function printRouteHints(): void
+    private function reportRoutes(): void
     {
-        $dir = app_path("{$this->context}/Shared/Infrastructure/Http/Routes");
         $slug = Str::kebab($this->plural);
 
         // Web and api must differ in both URI and name. RouteCollection keys
@@ -350,83 +386,71 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // The api URI is kept distinct by the prefix group the context's api
         // file declares, which is the convention the rest of the application
         // follows: bootRoutes() applies the middleware group but no prefix.
-        $route = fn (string $name): string => "Route::get('/{$slug}/{id}', [{$this->aggregate}Controller::class, 'show'])->name('{$name}');";
+        //
+        // The controller is written out in full, no import, for the reason
+        // every other line in this report is: the route file keeps an import
+        // list of its own, and the one this context ships opens with four
+        // controllers. It also tells the two apart on sight, since web and API
+        // share a short name.
+        $route = fn (string $name, string $fqcn): string => "Route::get('/{$slug}/{id}', [\\{$fqcn}::class, 'show'])->name('{$name}');";
 
         $controller = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Http\\Controllers\\{$this->aggregate}Controller";
+        $apiController = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Http\\Controllers\\API\\{$this->aggregate}Controller";
 
         $snippets = [
-            'web' => [
-                'controller' => $controller,
-                'lines' => [$route("{$slug}.show")],
-            ],
+            'web' => [$route("{$slug}.show", $controller)],
             'api' => [
-                'controller' => "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Http\\Controllers\\API\\{$this->aggregate}Controller",
-                'lines' => [
-                    // Guarded, unlike the web snippet above. bootRoutes()
-                    // applies the api middleware group, which in Laravel is
-                    // SubstituteBindings and nothing else, so a pasted route
-                    // answers with no token. A web show page is often meant to
-                    // be public; an api one reached by id is not, and both the
-                    // stub this file was generated from and the context shipped
-                    // here guard it.
-                    "Route::prefix('api')->middleware('auth:sanctum')->group(function () {",
-                    '    '.$route("api.{$slug}.show"),
-                    '});',
-                    "// the {$this->aggregate}Controller here is the one under Http\\Controllers\\API",
-                ],
+                // Guarded, unlike the web snippet above. bootRoutes() applies
+                // the api middleware group, which in Laravel is
+                // SubstituteBindings and nothing else, so a pasted route
+                // answers with no token. A web show page is often meant to be
+                // public; an api one reached by id is not.
+                "Route::prefix('api')->middleware('auth:sanctum')->group(function () {",
+                '    '.$route("api.{$slug}.show", $apiController),
+                '});',
             ],
         ];
 
-        foreach ($snippets as $kind => $snippet) {
+        foreach ($snippets as $kind => $lines) {
             if (! $this->wants($kind)) {
                 continue;
             }
 
-            $file = "{$dir}/{$kind}.php";
+            $file = app_path("{$this->context}/Shared/Infrastructure/Http/Routes/{$kind}.php");
 
-            // What the route file already holds decides this, not the flags.
-            // A developer who has declared the route may well have put it
-            // behind middleware, and pasting the canonical one back replaces
-            // it: RouteCollection keys by method and URI.
-            //
-            // Asked by its full name, which is what tells the web controller
-            // from the one under API: they share a short name.
-            $routes = SourceFile::at($file);
-
-            if ($routes->references($snippet['controller'])) {
-                continue;
-            }
-
-            $this->newLine();
-
-            // It may already declare the route, so pasting the canonical one
-            // back would replace whatever middleware it was wrapped in.
-            if ($this->files->exists($file) && ! $routes->parsed()) {
-                $this->line("  <fg=yellow>{$this->relative($file)} does not parse, so whether it declares the {$kind} route could not be checked.</>");
-
-                continue;
-            }
-
-            $this->line("  Add to <options=bold>{$this->relative($file)}</>:");
-
-            foreach ($snippet['lines'] as $line) {
-                $this->line("  <fg=gray>{$line}</>");
-            }
-
-            // Both commands make route files opt in, so this one may well not
-            // exist. Creating it is not enough either: a route file the
-            // provider does not declare is never loaded, and the only symptom
-            // is a 404.
+            // The route file is opt in on both commands, so it may well not be
+            // there. Creating it is not enough either: a route file the
+            // provider does not declare is loaded by nothing, and the only
+            // symptom is a 404.
             if (! $this->files->exists($file)) {
-                $this->line("  <fg=yellow>That file does not exist yet: create it and declare it in {$this->context}ServiceProvider::\$routes.</>");
+                $lines[] = '';
+                $lines[] = "// That file does not exist yet. Create it with: php artisan ldd:make:bounded-context {$this->context} --{$kind}";
             }
+
+            // Outside that branch. A route file that exists and is not
+            // declared is the state with no symptom but a 404, and keying this
+            // on the file being absent meant the one run that could say so
+            // said nothing. Not "which also declares it" either: that command
+            // renders $routes only into a provider it writes itself.
+            $lines[] = '';
+            $lines[] = "// If {$this->context}ServiceProvider::\$routes does not already name that file,";
+            $lines[] = '// nothing loads it: declare it there, and that run prints the entry for you.';
+
+            // Hedged, and it has to be: nothing here reads the route file, and
+            // RouteCollection keys by method and URI, so a second copy of this
+            // line replaces the first outright. Somebody who wrapped theirs in
+            // middleware loses it, with route:list showing one entry and no
+            // error anywhere.
+            $lines[] = '';
+            $lines[] = '// A second route on the same method and URI replaces the first, middleware and all.';
+
+            $this->note("Declare the {$kind} route in {$this->relative($file)}, if it is not there already:", $lines);
         }
 
         $page = base_path("resources/templates/tailwindcss/js/Pages/{$this->plural}/Show.vue");
 
         if ($this->wants('web') && ! $this->files->exists($page)) {
-            $this->newLine();
-            $this->line("  Create the page at <options=bold>{$this->relative($page)}</>");
+            $this->note("Create the page at {$this->relative($page)}", []);
         }
     }
 
@@ -439,7 +463,21 @@ final class MakeAggregateCommand extends ScaffoldCommand
     {
         $mine = app_path("{$this->context}/{$this->plural}/Infrastructure/Persistence/Migrations");
 
-        foreach ($this->files->glob(app_path('*/*/Infrastructure/Persistence/Migrations')) ?: [] as $dir) {
+        // Both depths. Aggregates keep their migrations two segments in, and
+        // Shared keeps the framework's own one segment in: cache, jobs,
+        // failed_jobs, job_batches. Scanning only the first meant an aggregate
+        // called Job passed the guard and put a second create_jobs_table
+        // beside Shared's, which is exactly what this exists to stop.
+        // database/migrations too: BaseCommand::getMigrationPaths() always
+        // merges it with whatever the providers register, so a table created
+        // there by Laravel's own make:migration collides just as hard.
+        $dirs = array_merge(
+            $this->files->glob(app_path('*/*/Infrastructure/Persistence/Migrations')) ?: [],
+            $this->files->glob(app_path('*/Infrastructure/Persistence/Migrations')) ?: [],
+            [database_path('migrations')],
+        );
+
+        foreach ($dirs as $dir) {
             if ($dir === $mine) {
                 continue;
             }
@@ -457,7 +495,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         return (bool) ($this->option($option) || $this->option('all'));
     }
 
-    private function writeCore(string $path): bool
+    private function writeCore(string $path): void
     {
         $uses = [];
 
@@ -486,35 +524,12 @@ final class MakeAggregateCommand extends ScaffoldCommand
                 : '',
         ]));
 
-        foreach ($uses as $class) {
-            $imported = $this->withImport($model, $class);
-
-            // Two reasons reach here and the fix differs, so neither may be
-            // guessed at. An aggregate named after something the stub already
-            // imports is the reachable one: `hAs` studlies to `HAs`, whose
-            // factory answers to the same name as Eloquent's HasFactory, and
-            // PHP compares those without case.
-            if ($imported === null) {
-                $this->components->error("Could not add [{$class}] to the model.");
-                $this->components->bulletList([
-                    "Rename the aggregate if something the model already imports answers to the same short name as [{$class}].",
-                    'Otherwise stubs/aggregate.model.stub has no namespace declaration; it is meant to be edited, so that is reachable too.',
-                ]);
-
-                return false;
-            }
-
-            $model = $imported;
-        }
-
-        $this->put("{$path}/Domain/{$this->aggregate}.php", $model);
+        $this->put("{$path}/Domain/{$this->aggregate}.php", $this->withImports($model, ...$uses));
 
         $this->put("{$path}/Domain/Contracts/{$this->aggregate}Repository.php", $this->stub('aggregate.repository', $this->replacements()));
         $this->put("{$path}/Domain/Exceptions/{$this->aggregate}Exception.php", $this->stub('aggregate.exception', $this->replacements()));
         $this->put("{$path}/Domain/Exceptions/{$this->aggregate}NotFound.php", $this->stub('aggregate.not-found', $this->replacements()));
         $this->put("{$path}/Infrastructure/Persistence/Eloquent{$this->aggregate}Repository.php", $this->stub('aggregate.eloquent-repository', $this->replacements()));
-
-        return true;
     }
 
     private function writeOptional(string $path): void
@@ -532,13 +547,20 @@ final class MakeAggregateCommand extends ScaffoldCommand
             // the first time somebody runs db:seed, so the body follows what
             // was actually asked for rather than assuming the happy path.
             $seeder = $this->stub('aggregate.seeder', $this->replacements([
-                // App sorts before Illuminate, so this goes in ahead of the
-                // Seeder import and Pint's ordered_imports has nothing to fix.
-                '{{ seederUses }}' => $this->wants('factory') ? $this->seederUses() : '',
-                '{{ seederBody }}' => $this->wants('factory')
+                '{{ seederUses }}' => '',
+                '{{ seederBody }}' => $this->hasFactory
                     ? "        {$this->aggregate}::factory()->count(10)->create();\n"
-                    : "        // Nothing here yet. Generate a factory with --factory, then:\n        // {$this->aggregate}::factory()->count(10)->create();\n",
+                    // Fully qualified, like everything else printed for a file
+                    // whose imports are not ours: without --factory the seeder
+                    // imports only Illuminate's Seeder, so uncommenting the
+                    // short name resolves inside the seeder's own namespace and
+                    // fatals db:seed.
+                    : "        // Nothing here yet. Generate a factory with --factory, then:\n        // \\App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate}::factory()->count(10)->create();\n",
             ]));
+
+            if ($this->hasFactory) {
+                $seeder = $this->withImports($seeder, "App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate}");
+            }
 
             $this->put("{$path}/Infrastructure/Persistence/Seeders/{$this->aggregate}Seeder.php", $seeder);
         }
@@ -587,10 +609,10 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * them. There is no obvious name for an aggregate's mailable, and one
      * aggregate often wants several.
      *
-     * Returns the console commands to declare in the provider, and whether
-     * everything asked for is actually there. A name this command refused, or
-     * a generator that declined, has to reach the exit code: printing an error
-     * and answering success is how a chained script carries on regardless.
+     * Returns the console commands to report, and whether everything asked for
+     * is actually there. A name this command refused, or a generator that
+     * declined, has to reach the exit code: printing an error and answering
+     * success is how a chained script carries on regardless.
      *
      * @return array{commands: list<string>, complete: bool}
      */
@@ -630,9 +652,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
                     continue;
                 }
 
-                // A console command Laravel does not autodiscover, since it
-                // only ever scans app/Console/Commands, so the provider has to
-                // declare it or the command simply never exists.
                 if ($option === 'command') {
                     $consoleCommands[] = $written;
                 }
@@ -643,113 +662,9 @@ final class MakeAggregateCommand extends ScaffoldCommand
     }
 
     /**
-     * Binds the repository and, when a migration was generated, registers its
-     * path. Without this the aggregate would resolve nothing and its tables
-     * would never be created, silently in both cases.
-     *
-     * @param  list<string>  $consoleCommands
-     */
-    private function wireProvider(array $consoleCommands): bool
-    {
-        $file = app_path("{$this->context}/{$this->context}ServiceProvider.php");
-
-        $contract = "App\\{$this->context}\\{$this->plural}\\Domain\\Contracts\\{$this->aggregate}Repository";
-        $eloquent = "App\\{$this->context}\\{$this->plural}\\Infrastructure\\Persistence\\Eloquent{$this->aggregate}Repository";
-        // Every entry this method appends is written out in full rather than
-        // imported under its short name. Aggregate and command names are free
-        // text: two aggregates in one context may each want a SyncThings, and
-        // an aggregate called Widget puts a WidgetRepository beside whatever
-        // the provider already imports. Two imports resolving to one short
-        // name is a compile-time fatal, and because the provider is loaded
-        // from bootstrap/providers.php it takes down every request and every
-        // artisan call, including the one needed to undo it.
-        $binding = "        \\{$contract}::class => \\{$eloquent}::class,";
-
-        $contents = $this->files->get($file);
-
-        // Asked of the declaration itself: matching the generated line would
-        // miss a reformatted provider and append the binding a second time,
-        // silently overriding whatever the first one pointed at, while
-        // matching the text alone would count one left in a comment.
-        $declared = SourceFile::at($file);
-
-        // Unreadable is not the same as empty: taking it as empty binds the
-        // repository a second time and registers the migration path again.
-        if (! $declared->parsed()) {
-            $this->components->twoColumnDetail($this->relative($file), '<fg=red>could not be read</>');
-            $this->components->warn("{$this->context}ServiceProvider does not parse. Fix it, then run this again.");
-
-            return false;
-        }
-
-        if (! in_array($contract, $declared->propertyKeys('bindings'), true)) {
-            $contents = $this->appendToArray($contents, 'bindings', $binding);
-        }
-
-        if ($contents !== null && $this->wants('migration')) {
-            $path = "/{$this->plural}/Infrastructure/Persistence/Migrations";
-
-            if (! in_array($path, $declared->propertyStrings('migrations'), true)) {
-                $contents = $this->appendToArray($contents, 'migrations', "        __DIR__.'{$path}',");
-            }
-        }
-
-        // array_unique because the same flag can be passed twice in one run,
-        // and the check below only sees the file as it was before this one.
-        foreach (array_unique($consoleCommands) as $class) {
-            // Asked of the declaration rather than of the flag, so a re-run
-            // that regenerates nothing does not declare the command twice and
-            // register it with Artisan twice over.
-            if ($contents === null || $declared->references($class)) {
-                continue;
-            }
-
-            $contents = $this->appendToArray($contents, 'commands', "        \\{$class}::class,");
-        }
-
-        // Reporting a green "wired" after a rewrite that matched nothing is
-        // how an unbound contract and an unregistered migration path reach
-        // production unnoticed. Say so instead.
-        if ($contents === null) {
-            $this->components->twoColumnDetail($this->relative($file), '<fg=red>could not be wired</>');
-
-            // The file is only written once, at the end, so a null here means
-            // none of it landed. Naming all three matters: a console command
-            // left out of $commands is one Artisan never registers.
-            $this->components->warn("Nothing was written to {$this->context}ServiceProvider. Add the repository binding, the migration path if one was generated, and any console command, by hand.");
-
-            return false;
-        }
-
-        $this->files->put($file, $contents);
-        $this->components->twoColumnDetail($this->relative($file), '<fg=green>wired</>');
-
-        return true;
-    }
-
-    private function appendToArray(string $contents, string $property, string $entry): ?string
-    {
-        return $this->appendToList($contents, "array \${$property} = [", $entry);
-    }
-
-    /**
      * @param  array<string, string>  $extra
      * @return array<string, string>
      */
-    /**
-     * The import --factory adds to the seeder, ahead of Illuminate's Seeder.
-     *
-     * Written once because the collision guard has to render the stub exactly
-     * as this run will: with the placeholder left in, `{{ seederUses }}use
-     * Illuminate\Database\Seeder;` is one line whose `use` is not at column
-     * zero, and the guard never saw it. `ldd:make:aggregate Billing Seeder
-     * --all` wrote both Seeder imports and exited 0.
-     */
-    private function seederUses(): string
-    {
-        return "use App\\{$this->context}\\{$this->plural}\\Domain\\{$this->aggregate};\n";
-    }
-
     private function replacements(array $extra = []): array
     {
         return array_merge([

@@ -21,10 +21,17 @@ first. What this starter adds is that the structure is enforced, generated, and 
   listing rather than written out by hand, so a context you add tomorrow is covered the moment it exists, and every
   context already there starts forbidding it at the same time.
 
-- **The structure is generated, wiring included.** The `ldd:make:*` commands write the files and register them: the
-  provider in `bootstrap/providers.php`, the repository binding, the migration path, the event handler, the console
-  command. Every one of those is a step that fails silently when forgotten, and a layout that costs ten manual steps
-  per aggregate is a layout that gets abandoned on the first deadline.
+- **The structure is generated, and it tells you what is left.** The `ldd:make:*` commands write files. They do not
+  edit files they did not create: the one exception is `ldd:make:bounded-context`, which registers its provider in
+  `bootstrap/providers.php` through Laravel's own helper, so a context comes out fully wired. Everything after that
+  ends with a report naming what to register and where, with the code as it would read: the repository binding, the
+  migration path, the event mapping, the console command, the seeder, the route. Each of those is a step that fails
+  silently when forgotten, and the report is what stops it being forgotten.
+
+- **Nothing generated can take the application down.** A command that appends to a provider is a command that can
+  corrupt one, and a provider is loaded from `bootstrap/providers.php`, so a bad edit takes `artisan` with it. These
+  commands only ever create files, which is why the worst a bad name can do is leave one file that does not compile
+  in its own directory, loaded by nothing. That is the position Laravel's own `make:*` commands take.
 
 - **It ships applied, not as an example.** Registration, login, two-factor, session management and profiles are
   already rearranged into contexts, aggregates and layers. You read the pattern on features that work, rather than
@@ -152,14 +159,15 @@ one aggregate at a time:
 ```
 
 That writes the aggregate root, its repository contract and Eloquent implementation, and its
-exceptions. It then binds the repository in the context's service provider, which is what makes it
-resolvable at all. Everything else is opt in, because real aggregates rarely need every layer:
+exceptions, and then prints the binding to add to the context's service provider, which is what
+makes the contract resolvable at all. Everything else is opt in, because real aggregates rarely
+need every layer:
 
 | Flag | Adds |
 |---|---|
-| `--migration` | A migration, and its path in the provider's `$migrations` |
+| `--migration` | A migration, and the `$migrations` entry to add for it |
 | `--factory` | A model factory in `Domain/Factories`, routed through the aggregate's `new()` |
-| `--seeder` | A seeder in the context, for you to list in `DatabaseSeeder` |
+| `--seeder` | A seeder in the context, and the `DatabaseSeeder` entry to add for it |
 | `--events` | A `Created` domain event, recorded by `new()` and published by you |
 | `--requests` | A form request |
 | `--web` | An Inertia controller, rendering through `InertiaController`, and a resource |
@@ -173,7 +181,7 @@ Four more take a name instead of being on or off, and can be repeated. `--all` d
 | `--mail=InvoicePaid` | A mailable in `Application/Mail` |
 | `--job=RebuildIndex` | A queued job in `Application/Jobs` |
 | `--notification=InvoiceDue` | A notification in `Application/Notifications` |
-| `--command=SyncInvoices` | An Artisan command in `Infrastructure/Console/Commands`, and its entry in `$commands` |
+| `--command=SyncInvoices` | An Artisan command in `Infrastructure/Console/Commands`, and the `$commands` entry to add for it |
 
 Either controller flag also writes an `{Aggregate}Resource`, because both of them publish and neither should hand
 out the model itself. It starts closed, with `id` and nothing else, so an attribute reaches the outside because you
@@ -196,14 +204,20 @@ what the last two commands fill in:
 recorded events inside the same transaction, so a failing listener cannot leave the aggregate
 persisted. Without it the events pile up on the instance and vanish with it.
 
-The handler is the one that needs wiring. It is declared in the provider's `$events`, and one that
-is missing from there is simply never called. That is why the command refuses to add a second
-handler for an event that already has one, rather than leave two entries under a key where PHP
-keeps only the last.
+The handler is the one that needs declaring. It goes in the provider's `$events`, and one that is
+missing from there is simply never called, which is why the command prints the mapping rather than
+leaving you to remember it. It prints rather than appends because `$events` is keyed by the event
+class: two entries under one key leave PHP keeping the last and dropping the first, without a word,
+and which handler should survive is not a decision a generator gets to make.
+
+Everything the report prints is written out in full, never as an import. The file it goes into keeps
+an import list of its own, and two imports resolving to one short name is a compile-time fatal.
+Pasted fully qualified, a line cannot collide with anything, and `pint` will shorten it afterwards
+if it can do so safely.
 
 All four commands only ever add. Run one again with a flag you skipped and it writes what is missing,
-leaves every file already on disk alone, since your migration may have been applied and the provider
-carries wiring no stub knows about, and prints the lines to add by hand.
+leaves every file already on disk alone, since your migration may have been applied and your provider
+carries wiring no stub knows about, and prints again what is still to be registered.
 
 ## 📁 Structure
 
@@ -355,8 +369,9 @@ app
 ```
 
 Migrations belong to the aggregate that owns the table, not to `database/migrations`, which this starter does not
-have. Each one is registered through the `$migrations` array on the context's provider, and forgetting that entry is
-the quiet failure `ldd:make:aggregate --migration` exists to prevent.
+have. Each directory is registered through the `$migrations` array on the context's provider, and a directory that
+is not listed there is never migrated, with `migrate` reporting nothing to do. `ldd:make:aggregate --migration`
+prints the entry to add for exactly that reason.
 
 Seeders sit beside those migrations, one per aggregate, and the factory lives in `Domain/Factories` next to the
 aggregate it builds. The root `DatabaseSeeder` is the exception: it stays in the `Database\Seeders` namespace, which

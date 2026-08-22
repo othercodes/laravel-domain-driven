@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
-use App\Shared\Infrastructure\Console\Support\SourceFile;
-
 /**
  * Class MakeEventHandlerCommand
  *
- * Adds a domain event handler and declares it in the context's provider.
+ * Adds a domain event handler, and says how to declare it.
  *
  * The declaration is the point. A handler that is not listed in $events is
  * never called, and nothing anywhere says so: it is the same silent failure
- * as an unbound repository or an unregistered migration path.
+ * as an unbound repository or an unregistered migration path. It is printed
+ * rather than appended because $events is keyed by the event class, and only
+ * the developer can say what should happen when a key is already taken.
  *
  * @author Unay Santisteban <usantisteban@othercode.io>
  */
@@ -26,7 +26,7 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         {--event= : The domain event, defaults to <Aggregate>Created}
         {--queued : Handle the event on the queue}';
 
-    protected $description = 'Create a domain event handler and declare it in the provider';
+    protected $description = 'Create a domain event handler and say how to declare it';
 
     public function handle(): int
     {
@@ -49,6 +49,30 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
+        // A handler needs an event the way an aggregate needs a context.
+        // Generating the event from here would be creating upwards: it belongs
+        // to the aggregate, and the command that owns the aggregate makes it.
+        // The same casing trap as the context and the aggregate directory, and
+        // the last name still matched by a bare exists(): the handler stub
+        // imports Domain\Events\{$event} by the spelling given, so a run that
+        // found the file through a case-insensitive filesystem writes an
+        // import that resolves nowhere else.
+        $events = array_map(
+            fn (string $file): string => basename($file, '.php'),
+            $this->files->glob("{$target['path']}/Domain/Events/*.php") ?: []
+        );
+
+        foreach ($events as $onDisk) {
+            if (strcasecmp($onDisk, $event) === 0 && $onDisk !== $event) {
+                $this->components->error("The event on disk is [{$onDisk}], not [{$event}].");
+                $this->components->bulletList([
+                    "Run it again with: --event={$onDisk}",
+                ]);
+
+                return self::FAILURE;
+            }
+        }
+
         if (! $this->files->exists("{$target['path']}/Domain/Events/{$event}.php")) {
             $this->components->error("[{$event}] does not exist in [{$target['aggregate']}].");
             $this->components->bulletList([
@@ -58,152 +82,98 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        // Asked of the stubs as this run would render them, before anything
-        // is written. The names that can collide are the ones interpolated
-        // in, so an unrendered stub has nothing useful to compare.
-        //
-        // After the event is resolved, because the handler's only import is
-        // the event: a handler named InvoiceCreated lands under it. --queued
-        // adds ShouldQueue afterwards, which the stub cannot know about.
-        if ($this->refusesCollidingNames('event-handler', [
-            '{{ context }}' => $target['context'],
-            '{{ plural }}' => $target['plural'],
-            '{{ name }}' => $name,
-            '{{ event }}' => $event,
-            '{{ handlerImplements }}' => '',
-        ], ['Illuminate\Contracts\Queue\ShouldQueue'])) {
-            return self::FAILURE;
-        }
-
-        $provider = app_path("{$target['context']}/{$target['context']}ServiceProvider.php");
-        $contents = $this->files->get($provider);
-
-        // $events is keyed by the event class, and a duplicate key in an array
-        // literal silently drops the earlier one. Checked before anything is
-        // written, so a refusal leaves no orphan handler behind.
-        //
-        // Asked of the declared keys: a mapping somebody parked behind // is
-        // not a mapping, and blocked the command outright when this was a
-        // search over the text.
-        $eventClass = "App\\{$target['context']}\\{$target['plural']}\\Domain\\Events\\{$event}";
-        $declared = SourceFile::at($provider);
-
-        // Unreadable is not the same as empty. Treating it as empty here would
-        // add a second entry under a key that already has one, which is the
-        // exact silent loss this guard exists to prevent.
-        if (! $declared->parsed()) {
-            $this->components->error("{$target['context']}ServiceProvider does not parse, so its \$events cannot be read.");
-            $this->components->bulletList([
-                'Fix the provider first: a second entry under one key drops the first without a word.',
-            ]);
-
-            return self::FAILURE;
-        }
-
-        if (in_array($eventClass, $declared->propertyKeys('events'), true)) {
-            $this->components->error("[{$event}] is already handled in {$target['context']}ServiceProvider.");
-            $this->components->bulletList([
-                'Declare the second handler by hand: PHP would drop one of two entries under the same key.',
-            ]);
-
-            return self::FAILURE;
-        }
-
         $handler = "{$target['path']}/Application/EventHandlers/{$name}.php";
 
-        // put() reports whether it wrote. Adding the import to a handler this
-        // run did not create leaves it on a class that never gains the
-        // implements clause, which is an unused import and a lie.
-        $written = $this->put($handler, $this->stub('event-handler', [
+        $contents = $this->stub('event-handler', [
             '{{ context }}' => $target['context'],
             '{{ plural }}' => $target['plural'],
             '{{ name }}' => $name,
             '{{ event }}' => $event,
             '{{ handlerImplements }}' => $this->option('queued') ? ' implements ShouldQueue' : '',
-        ]));
+        ]);
 
         if ($this->option('queued')) {
-            $written ? $this->queueTheHandler($handler) : $this->printQueuedHint($handler, $name);
+            $contents = $this->withImports($contents, 'Illuminate\Contracts\Queue\ShouldQueue');
         }
 
-        $wired = $this->wireProvider($provider, $contents, $target, $name, $event);
+        $written = $this->put($handler, $contents);
 
-        $this->newLine();
-        $this->components->info("Event handler [{$name}] ".($written ? 'created' : 'declared')." in [{$target['context']}].");
-
-        // The handler exists but nothing calls it, so a script chaining on
-        // this command must not treat it as done.
-        return $wired ? self::SUCCESS : self::FAILURE;
-    }
-
-    /**
-     * What the handler already declares decides this: asking for --queued on
-     * one that is already queued has nothing to say.
-     */
-    private function printQueuedHint(string $file, string $name): void
-    {
-        $handler = SourceFile::at($file);
-
-        // Asked before concluding anything from what the file does not hold. A
-        // file that does not parse, and one holding no such class at all, both say
-        // "implements nothing", and telling somebody to add an interface to a
-        // class that is not there names the wrong problem.
-        if (! $handler->declaresClass($name)) {
-            $this->components->warn("{$name} already existed but could not be read from {$this->relative($file)}, so whether it is queued is unknown.");
-
-            return;
-        }
-
-        if ($handler->implementsInterface('Illuminate\\Contracts\\Queue\\ShouldQueue')) {
-            return;
-        }
-
-        $this->components->warn("{$name} already existed and was left as it is. Add `implements ShouldQueue` to it by hand.");
-    }
-
-    private function queueTheHandler(string $file): void
-    {
-        $imported = $this->withImport($this->files->get($file), 'Illuminate\Contracts\Queue\ShouldQueue');
-
-        if ($imported === null) {
-            $this->components->warn('Import Illuminate\Contracts\Queue\ShouldQueue in the handler by hand.');
-
-            return;
-        }
-
-        $this->files->put($file, $imported);
-    }
-
-    /**
-     * @param  array{context: string, aggregate: string, plural: string, path: string}  $target
-     */
-    private function wireProvider(string $provider, string $contents, array $target, string $name, string $event): bool
-    {
         $handlerClass = "App\\{$target['context']}\\{$target['plural']}\\Application\\EventHandlers\\{$name}";
         $eventClass = "App\\{$target['context']}\\{$target['plural']}\\Domain\\Events\\{$event}";
 
-        // Written out in full rather than imported under their short names.
-        // Handler and event names are free text, so either may collide with
-        // something the provider already imports, and two imports resolving to
-        // one short name is a fatal that takes the application down from a
-        // command that just printed green. $commands and $migrations avoid it
-        // the same way.
-        $updated = $this->appendToList(
-            $contents,
-            'array $events = [',
-            "        \\{$eventClass}::class => \\{$handlerClass}::class,"
-        );
+        $entries = ["\\{$eventClass}::class => \\{$handlerClass}::class,"];
 
-        if ($updated === null) {
-            $this->components->twoColumnDetail($this->relative($provider), '<fg=red>could not be wired</>');
-            $this->components->warn("Map {$event}::class to {$name}::class in {$target['context']}ServiceProvider::\$events by hand.");
-
-            return false;
+        // A handler that was already on disk was written against whatever
+        // event it was written against, and nothing here reads its handle()
+        // signature. Mapping it to this event compiles and then fails at
+        // dispatch with a type error, or worse, silently does the wrong thing.
+        if (! $written) {
+            $entries[] = '';
+            $entries[] = "// [{$name}] was already on disk: check its handle() takes {$event} before mapping it.";
         }
 
-        $this->files->put($provider, $updated);
-        $this->components->twoColumnDetail($this->relative($provider), '<fg=green>wired</>');
+        $this->wire(
+            "[{$name}]",
+            app_path("{$target['context']}/{$target['context']}ServiceProvider.php"),
+            'events',
+            $entries
+        );
 
-        return true;
+        // $events is keyed by the event, and a second entry under a key that
+        // already has one leaves PHP keeping the last and dropping the first,
+        // silently: the handler that was there stops running and nothing says
+        // so. This repository ships one such array already, mapping
+        // UserEmailUpdated to SendUserEmailVerification, so a handler for that
+        // event reaches the case on the way out of the box.
+        //
+        // Said rather than checked. Which handler should survive is not a
+        // generator's decision, and the array form below is the answer that
+        // loses neither: ComplexHeart's bootEvents() listens for every entry
+        // when the value is a list.
+        $this->note(
+            "If {$event} is already a key in \$events, do not add a second one: PHP keeps only the last. List both instead:",
+            [
+                "\\{$eventClass}::class => [",
+                '    // the handler already mapped to it, first',
+                "    \\{$handlerClass}::class,",
+                '],',
+            ]
+        );
+
+        // Nothing here rewrites a file, so a handler that was already on disk
+        // is whatever it was: asking for --queued cannot make it queued.
+        //
+        // Hedged, because what decides this is the write, not the handler: a
+        // re-run of the same --queued command reaches here over a handler the
+        // first run already made queued, and nothing here reads it back to
+        // find out. Saying it outright would be telling somebody to add what
+        // is already there.
+        //
+        // Fully qualified and no import, like every other line this report
+        // prints. This was the one place that printed a `use`, and pasting it
+        // into a handler that already imports ShouldQueue is a fatal in a
+        // class the provider lists in $events.
+        //
+        // The name, not the clause and not the declaration it goes on.
+        // Printing `final readonly class X implements ...` told anybody
+        // following it to replace existing text, written without reading the
+        // file: a handler given another interface, or with readonly taken off
+        // to hold state, loses that. Printing `implements ...` was no better
+        // beside an interface that is already there, where what is needed is a
+        // comma and not a second `implements`. The name alone is right in both
+        // cases, and the heading says where it goes.
+        if (! $written && $this->option('queued')) {
+            $this->note(
+                "[{$name}] already existed and was left as it is. If it is not queued already, add this to its implements list:",
+                ['\\Illuminate\\Contracts\\Queue\\ShouldQueue']
+            );
+        }
+
+        $this->newLine();
+        $this->components->info("Event handler [{$name}] ".($written ? 'created' : 'left as it is')." in [{$target['context']}].");
+
+        $this->report();
+
+        return self::SUCCESS;
     }
 }

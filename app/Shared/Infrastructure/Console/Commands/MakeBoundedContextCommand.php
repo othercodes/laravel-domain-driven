@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Shared\Infrastructure\Console\Commands;
 
-use App\Shared\Infrastructure\Console\Support\SourceFile;
+use Illuminate\Support\ServiceProvider;
 
 /**
  * Class MakeBoundedContextCommand
@@ -15,6 +15,10 @@ use App\Shared\Infrastructure\Console\Support\SourceFile;
  * Layers are deliberately not created. A context earns its Domain,
  * Application and Infrastructure directories one aggregate at a time,
  * through ldd:make:aggregate.
+ *
+ * This is the one command that registers anything. Everything a context can
+ * ever hold is declared in the provider this run writes, so a context comes
+ * out fully wired and every later command only adds to it.
  *
  * @author Unay Santisteban <usantisteban@othercode.io>
  */
@@ -27,6 +31,25 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
 
     protected $description = 'Create a bounded context with its service provider';
 
+    /**
+     * The one name a context cannot have.
+     *
+     * The provider stub imports exactly one class, the base provider it
+     * extends, and declares <Context>ServiceProvider beside it. A context
+     * called BoundedContext therefore produces `class BoundedContextServiceProvider
+     * extends BoundedContextServiceProvider` under its own import, which is a
+     * fatal, in the one file that goes straight into bootstrap/providers.php:
+     * the application and artisan both stop booting, and deleting the file
+     * does not undo it.
+     *
+     * No other generated name can do this, because no other command registers
+     * what it writes. This is a constant rather than something derived from
+     * the stub: a check that reads the stub is a prediction, and predictions
+     * are what this whole design got rid of. The stub having one import is an
+     * invariant a test holds.
+     */
+    private const RESERVED_CONTEXT = 'BoundedContext';
+
     public function handle(): int
     {
         $context = $this->identifier((string) $this->argument('name'), 'bounded context');
@@ -35,23 +58,34 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
-        if ($context === self::SHARED_CONTEXT) {
+        if ($this->refuses($context, self::SHARED_CONTEXT)) {
             $this->components->error('[Shared] already exists as the application foundation layer.');
 
             return self::FAILURE;
         }
 
-        // Asked of the stubs as this run would render them, before anything
-        // is written. The names that can collide are the ones interpolated
-        // in, so an unrendered stub has nothing useful to compare.
-        //
-        // The provider stub imports BoundedContextServiceProvider and declares
-        // <Context>ServiceProvider, and this one is loaded from
-        // bootstrap/providers.php: a fatal here takes the application down.
-        if ($this->refusesCollidingNames('bounded-context.provider', [
-            '{{ context }}' => $context,
-            '{{ routes }}' => '',
-        ])) {
+        if ($this->refuses($context, self::RESERVED_CONTEXT)) {
+            $this->components->error("[{$context}] would produce a provider that extends itself, and it is registered on boot.");
+            $this->components->bulletList([
+                'Pick another name for the context.',
+            ]);
+
+            return self::FAILURE;
+        }
+
+        // Before anything is written or registered. On a case-insensitive
+        // filesystem `ldd:make:bounded-context identityandaccess` finds the
+        // real IdentityAndAccess, reports its provider "exists, skipped", and
+        // then registers App\Identityandaccess\IdentityandaccessServiceProvider
+        // beside the real entry: unique() compares strings, so the list grows a
+        // second provider that boots the same context twice here and resolves
+        // to nothing on Linux.
+        if (($onDisk = $this->misspelling($context)) !== null) {
+            $this->components->error("The bounded context on disk is [{$onDisk}], not [{$context}].");
+            $this->components->bulletList([
+                "Run it again as: {$onDisk}",
+            ]);
+
             return self::FAILURE;
         }
 
@@ -62,68 +96,97 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
         // provider is the one file that accumulates hand-written wiring, and
         // rewriting it from the stub would drop every binding and migration
         // path while the aggregates stayed on disk.
-        $providerExisted = $this->files->exists($provider);
+        $providerWritten = $this->put($provider, $this->stub('bounded-context.provider', [
+            '{{ context }}' => $context,
+            '{{ routes }}' => $this->routesProperty($context),
+        ]));
 
-        $this->writeProvider($context, $path);
-        $routes = $this->writeRoutes($context, $path);
-        $registered = $this->registerProvider($context);
+        // Read from the options, not from what put() wrote. A run that finds
+        // both the provider and the route file already there wrote nothing and
+        // used to say nothing, which is the state that most needs saying: the
+        // file may well have been created by hand, following the convention
+        // the stub itself prints as a comment, and then it is declared by
+        // nothing and every route in it 404s. Whether the entry is already in
+        // $routes is not something this command can know, and the standing
+        // line above the report says exactly that.
+        $routes = array_values(array_filter(
+            ['web', 'api'],
+            fn (string $kind): bool => (bool) $this->option($kind)
+        ));
+
+        $this->writeRoutes($context, $path);
+
+        // The stub renders $routes from the same options, so a provider this
+        // run wrote already declares whatever route file it wrote beside it.
+        // A provider that was already there does not.
+        if (! $providerWritten && $routes !== []) {
+            $this->wire(
+                'the route files',
+                $provider,
+                'routes',
+                [
+                    ...array_map(
+                        fn (string $kind): string => "'{$kind}' => [__DIR__.'/Shared/Infrastructure/Http/Routes/{$kind}.php'],",
+                        $routes
+                    ),
+                    '',
+                    // The one property in the report that may not be declared
+                    // at all: a context created without a route flag gets it
+                    // as a commented example instead, in that same file, and
+                    // an entry pasted into a class body with no array around
+                    // it is a parse error.
+                    // Not "uncomment it": the example is written around a web.php
+                    // entry, so uncommenting it on a context created with --api
+                    // declares a route file nobody made. bootRoutes() groups
+                    // that path on boot, which is a fatal in a provider
+                    // bootstrap/providers.php loads, from a run that printed
+                    // green.
+                    '// If $routes is still the commented-out example there, replace it with a real',
+                    '// property holding the entry above, and nothing else.',
+                ]
+            );
+        }
+
+        // The single exception to these commands not editing what they did not
+        // create, and it is Laravel's own code doing it: the same helper
+        // make:provider uses. It merges, uniques and sorts, so re-running is
+        // free, and it writes the class fully qualified with no import.
+        $registered = ServiceProvider::addProviderToBootstrapFile("App\\{$context}\\{$context}ServiceProvider");
+
+        $this->components->twoColumnDetail(
+            'bootstrap/providers.php',
+            $registered ? '<fg=green>registered</>' : '<fg=red>could not be updated</>'
+        );
 
         $this->newLine();
-        $this->components->info("Bounded context [{$context}] ".($providerExisted ? 'updated.' : 'created.'));
+        $this->components->info("Bounded context [{$context}] ".($providerWritten ? 'created.' : 'updated.'));
         $this->components->bulletList([
             "Add aggregates with: php artisan ldd:make:aggregate {$context} <Aggregate>",
         ]);
 
-        // A route file the provider does not declare is never loaded, and the
-        // only symptom is a 404.
-        if ($providerExisted && $routes !== []) {
-            $this->newLine();
-            $this->line("  <fg=yellow>{$context}ServiceProvider was left as it is. Declare the new file(s) in its \$routes:</>");
-
-            foreach ($routes as $kind) {
-                $this->line("  <fg=gray>'{$kind}' => [__DIR__.'/Shared/Infrastructure/Http/Routes/{$kind}.php'],</>");
-            }
+        if (! $registered) {
+            $this->components->warn("Register App\\{$context}\\{$context}ServiceProvider in bootstrap/providers.php by hand.");
         }
+
+        $this->report();
 
         // The files exist but nothing loads them, so a script chaining on this
         // command must not treat it as done.
         return $registered ? self::SUCCESS : self::FAILURE;
     }
 
-    private function writeProvider(string $context, string $path): void
+    private function writeRoutes(string $context, string $path): void
     {
-        $this->put(
-            $path."/{$context}ServiceProvider.php",
-            $this->stub('bounded-context.provider', [
-                '{{ context }}' => $context,
-                '{{ routes }}' => $this->routesProperty($context),
-            ])
-        );
-    }
-
-    /**
-     * @return list<string> The route files this run actually created.
-     */
-    private function writeRoutes(string $context, string $path): array
-    {
-        $created = [];
-
         foreach (['web', 'api'] as $kind) {
             if (! $this->option($kind)) {
                 continue;
             }
 
-            $written = $this->put(
+            $this->put(
                 $path."/Shared/Infrastructure/Http/Routes/{$kind}.php",
                 $this->stub("bounded-context.routes.{$kind}", ['{{ context }}' => $context])
             );
-
-            if ($written) {
-                $created[] = $kind;
-            }
         }
-
-        return $created;
     }
 
     /**
@@ -161,56 +224,5 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
             $lines,
             '    ];',
         ]);
-    }
-
-    /**
-     * Adds the provider to bootstrap/providers.php.
-     */
-    private function registerProvider(string $context): bool
-    {
-        $file = base_path('bootstrap/providers.php');
-        $contents = $this->files->get($file);
-        $class = "App\\{$context}\\{$context}ServiceProvider";
-
-        // Asked of the array itself, resolved through whatever imports the
-        // file has. Laravel lists these fully qualified, an earlier version of
-        // this command listed them by short name behind an import, and either
-        // way the entry names the same class. An import on its own does not
-        // count as registered, and neither does a mention in a comment.
-        $listed = SourceFile::at($file);
-
-        if (! $listed->parsed()) {
-            $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=red>could not be read</>');
-            $this->components->warn("bootstrap/providers.php does not parse. Register {$class} once it does.");
-
-            return false;
-        }
-
-        if (in_array($class, $listed->returnedClasses(), true)) {
-            $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=yellow>already registered</>');
-
-            return true;
-        }
-
-        // Written out in full rather than imported. A context called Billing
-        // wants a BillingServiceProvider, and nothing stops this file already
-        // importing one under that name from somewhere else; two imports
-        // resolving to one short name is a fatal, and in this file of all
-        // files it means nothing boots at all.
-        $updated = $this->appendToList($contents, 'return [', "    \\{$class}::class,", '');
-
-        // A list this could not find is a context nothing ever loads, and
-        // silently: the provider file sits there looking finished. Say so.
-        if ($updated === null) {
-            $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=red>could not be updated</>');
-            $this->components->warn("Register {$class} in bootstrap/providers.php by hand.");
-
-            return false;
-        }
-
-        $this->files->put($file, $updated);
-        $this->components->twoColumnDetail('bootstrap/providers.php', '<fg=green>updated</>');
-
-        return true;
     }
 }

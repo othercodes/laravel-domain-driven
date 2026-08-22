@@ -2,10 +2,11 @@
 
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 
 /*
- * The command writes into app/ and edits the context provider, so every test
- * starts from a freshly generated context and removes it afterwards.
+ * The command writes into app/ and nowhere else, so every test starts from a
+ * freshly generated context and removes it afterwards.
  *
  * The teardown only ever deletes a directory this file created: in a starter
  * kit these tests run inside somebody else's application, and a fixture name
@@ -29,24 +30,37 @@ beforeEach(function () {
         "{$this->pages} already exists; refusing to run so the teardown cannot delete it."
     );
 
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    // Set before anything can fail: a fixture half-built by a run that threw
+    // is still a bounded context left in app/, and every later run of the
+    // suite then refuses at the guard above.
     $this->createdFixture = true;
+
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    $this->provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+
+    // Read after the fixture context is created: ldd:make:bounded-context is
+    // the one command that registers anything, and it rewrites this file.
+    $this->providersAfterFixture = File::get($this->providers);
 });
 
 afterEach(function () {
     File::put($this->providers, $this->providersBackup);
 
-    if ($this->createdFixture ?? false) {
-        File::deleteDirectory($this->pages);
-    }
-
     // Both fixtures are removed here rather than in the test body: an
     // assertion that fails leaves whatever the body had not reached yet, and
     // a leaked context makes every later run of the suite fail too.
     if ($this->createdFixture ?? false) {
+        File::deleteDirectory($this->pages);
         File::deleteDirectory(app_path('ScaffoldFixture'));
         File::deleteDirectory(app_path('ScaffoldOther'));
     }
+
+    // The mis-cased context test writes nothing while the guard holds, but the
+    // whole point of it is a run that lands inside a real bounded context, so
+    // a broken guard leaks Probes into app/IdentityAndAccess and every later
+    // run of the suite fails on the leftovers. Removed by the path the command
+    // would have used, and only ever this one name.
+    File::deleteDirectory(app_path('IdentityAndAccess/Probes'));
 });
 
 test('it generates only the core by default', function () {
@@ -63,141 +77,285 @@ test('it generates only the core by default', function () {
         ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http'))->not->toBeDirectory();
 });
 
-test('it binds the repository in the context provider', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
+test('it never touches the context provider', function () {
+    // The invariant the whole design rests on. A provider is loaded from
+    // bootstrap/providers.php, so a bad edit took the application and artisan
+    // down together, from a command that had just printed `wired` in green.
+    // Nothing this command does can reach that file any more, whatever it is
+    // asked to generate.
+    $before = File::get($this->provider);
+
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture',
+        'name' => 'Widget',
+        '--all' => true,
+        '--command' => ['SyncWidgets'],
+    ])->assertSuccessful();
+
+    expect(File::get($this->provider))->toBe($before)
+        ->and(File::get($this->providers))->toBe($this->providersAfterFixture);
+});
+
+test('a name that collides with its own stub breaks only its own file', function (string $name, array $flags, string $collides) {
+    // These used to be refused, by a guard that rendered every stub and
+    // compared short names, and that guard cost six review rounds and never
+    // ran out of cases it did not cover. What made refusing feel necessary was
+    // the provider edit: a class that does not compile, wired into a file
+    // loaded on boot, takes down artisan itself.
+    //
+    // Nothing is wired now, so this is exactly what `make:model Model` leaves
+    // behind in Laravel: one file in one directory that does not compile,
+    // loaded by nothing, deleted by hand.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => $name] + $flags)
         ->assertSuccessful();
 
-    expect(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')))
-        ->toContain('\App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,');
-});
+    $plural = Str::plural($name);
 
-/*
- * Two things answering to one short name in one file is the same fatal whether
- * they are two imports or an import and the class the file declares, and a
- * generated file reaches it from either side.
- *
- * What is asserted is the invariant itself, from outside: either the command
- * refuses, or everything it wrote compiles. An earlier version of this test
- * asserted that every name a stub imports is refused, which is a different and
- * wrong claim: an aggregate called Exception generates ExceptionException
- * under `use Exception`, and Schema appears only in the migration stub, which
- * declares an anonymous class. Both are fine, and a guard that refused them
- * would be answering a question nobody asked.
- */
-test('for every name the stubs import, the command refuses or writes files that compile', function () {
-    $imported = collect(File::glob(base_path('stubs/aggregate.*.stub')))
-        ->flatMap(function (string $stub): array {
-            // Not anchored at column zero alone: aggregate.seeder.stub opens
-            // its import line with a placeholder, and that is exactly the one
-            // name this sweep could not reach. Still not matching an indented
-            // `use`, which inside a class body is a trait, not an import.
-            preg_match_all('/(?:^|\}\})use ([^;\n]+);$/m', File::get($stub), $matches);
+    // The bound the decision actually accepts: that file, and no other. The
+    // provider and bootstrap/providers.php are pinned byte for byte by
+    // 'it never touches the context provider' and asserting them here says
+    // nothing about the aggregate at all.
+    expect(app_path("ScaffoldFixture/{$plural}/{$collides}"))->toBeFile()
+        ->and(php_parses(app_path("ScaffoldFixture/{$plural}/{$collides}")))->toBeFalse(
+            "{$collides} was expected not to compile; if the stubs changed, this row is stale."
+        );
 
-            return $matches[1];
-        })
-        ->reject(fn (string $import): bool => str_contains($import, '{{'))
-        ->map(fn (string $import): string => class_basename($import))
-        ->unique()
-        ->values();
+    // And the breakage stops there: the rest of the aggregate is written and
+    // compiles, which is what makes one bad file something you delete rather
+    // than a run to undo.
+    $contract = app_path("ScaffoldFixture/{$plural}/Domain/Contracts/{$name}Repository.php");
 
-    expect($imported)->not->toBeEmpty();
-
-    foreach ($imported as $name) {
-        $this->artisan('ldd:make:aggregate', [
-            'context' => 'ScaffoldFixture', 'name' => $name, '--all' => true,
-        ])->run();
-
-        foreach (File::allFiles(app_path('ScaffoldFixture')) as $file) {
-            expect(php_parses($file->getPathname()))->toBeTrue(
-                "ldd:make:aggregate ScaffoldFixture {$name} --all wrote {$file->getFilename()}, which does not compile."
-            );
-        }
-
-        File::deleteDirectory(app_path('ScaffoldFixture/'.Str::plural($name)));
-    }
-});
-
-/*
- * Eleven of the thirteen aggregate stubs declare a name derived from the
- * aggregate rather than the aggregate itself, and the collision follows the
- * derived name. Comparing the argument alone caught Model, whose stub declares
- * it as written, and waved these three through: that is the half-fixed shape
- * this branch exists to end.
- */
-test('it refuses an aggregate whose derived class name collides', function (string $name, array $flags) {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => $name] + $flags)
-        ->expectsOutputToContain('would put two things under the name')
-        ->assertFailed();
-
-    expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();
+    expect($contract)->toBeFile()
+        ->and(php_parses($contract))->toBeTrue();
 })->with([
     // {{ aggregate }}Resource lands on Illuminate's JsonResource.
-    'Json' => ['Json', ['--api' => true]],
+    'Json' => ['Json', ['--api' => true], 'Infrastructure/Http/Resources/JsonResource.php'],
     // {{ aggregate }}Factory lands on the shared AggregateFactory.
-    'Aggregate' => ['Aggregate', ['--factory' => true]],
+    'Aggregate' => ['Aggregate', ['--factory' => true], 'Domain/Factories/AggregateFactory.php'],
     // {{ aggregate }}Controller lands on the shared InertiaController.
-    'Inertia' => ['Inertia', ['--web' => true]],
+    'Inertia' => ['Inertia', ['--web' => true], 'Infrastructure/Http/Controllers/InertiaController.php'],
+    // Added to the model after the stub is rendered, not by the stub.
+    'HasFactory' => ['HasFactory', ['--factory' => true], 'Domain/HasFactory.php'],
+    // Declared as written, under Eloquent's own import.
+    'Model' => ['Model', [], 'Domain/Model.php'],
 ]);
 
-test('it refuses an aggregate named after an import the command adds itself', function () {
-    // Not every import a generated file ends up with comes from its stub.
-    // --factory adds HasFactory to the model afterwards, so a guard reading
-    // only stubs/ waves `class HasFactory` through, under its own import.
-    // Read back rather than asserted through doesntExpectOutputToContain,
-    // which matches per write call and never sees what the components print.
+test('it says what to register in the provider, fully qualified', function () {
+    // Read back rather than asserted through the console expectations, which
+    // match per write call and never see what the components print.
     $this->withoutMockingConsoleOutput();
 
-    $exit = $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'HasFactory', '--factory' => true]);
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true, '--command' => ['SyncWidgets'],
+    ]);
 
-    expect($exit)->toBe(1)
-        // No stub is blamed for it: --factory adds this import to the model,
-        // so the stub the sweep happens to reach first never carries it, and
-        // naming one sends the reader to a file that is not the problem, in
-        // the one directory here meant to be edited.
-        ->and(Artisan::output())
-        ->toContain('under the name [HasFactory]')
-        ->not->toContain('.stub');
-
-    expect(File::directories(app_path('ScaffoldFixture')))->toBeEmpty();
+    // Nothing it prints asks for an import. The provider keeps an import list
+    // of its own, and two imports resolving to one short name is the fatal
+    // this whole report exists to make unreachable: written out in full, a
+    // pasted line cannot collide with anything.
+    expect(Artisan::output())
+        ->toContain('in $bindings')
+        ->toContain('\App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,')
+        ->toContain('in $migrations')
+        ->toContain("__DIR__.'/Widgets/Infrastructure/Persistence/Migrations',")
+        // Laravel only autodiscovers app/Console/Commands, so a command that
+        // is not declared exists as a file and as nothing else.
+        ->toContain('in $commands')
+        ->toContain('\App\ScaffoldFixture\Widgets\Infrastructure\Console\Commands\SyncWidgets::class,')
+        ->not->toContain('use App\ScaffoldFixture\Widgets');
 });
 
-test('the refusal names the stub the collision came from', function () {
-    // Naming the wrong file is how somebody spends an afternoon editing a stub
-    // that was never the problem.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Model'])
-        ->expectsOutputToContain('aggregate.model.stub')
-        ->assertFailed();
+test('the report prints entries, never the property declaration around them', function () {
+    // Every file the report points at declares the property already: the stub
+    // ships all four, DatabaseSeeder ships $seeders. Printing
+    // `public array $bindings = [` and its closing bracket made the block read
+    // as something to paste whole, and the standing line does not save you:
+    // the entry genuinely is not there, so the check it asks for passes, and
+    // what lands is a redeclared property. That is a fatal in a provider
+    // bootstrap/providers.php loads.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget',
+        '--migration' => true, '--seeder' => true, '--command' => ['SyncWidgets'],
+    ]);
+
+    expect(Artisan::output())
+        ->toContain('in $bindings')
+        ->not->toContain('public array $bindings = [')
+        ->not->toContain('protected array $migrations = [')
+        ->not->toContain('protected array $commands = [')
+        ->not->toContain('private array $seeders = [');
 });
 
-test('it binds a repository whose short name the provider already imports', function () {
-    // Same fatal as the event handler, reached through the binding instead:
-    // an aggregate called Widget wants a WidgetRepository, and nothing stops
-    // the provider already importing one from somewhere else.
-    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+test('it asks for a migrations path only when it generated a migration', function () {
+    $this->withoutMockingConsoleOutput();
 
-    File::put($provider, str_replace(
-        'use ComplexHeart',
-        "use App\Elsewhere\WidgetRepository;\nuse ComplexHeart",
-        File::get($provider)
-    ));
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget']);
 
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
+    expect(Artisan::output())
+        ->toContain('in $bindings')
+        ->not->toContain('in $migrations');
+});
+
+test('the report names every class in a form that can be pasted', function () {
+    // Pasted short, the seeder entry resolves inside Database\Seeders, which
+    // composer maps to two directories that do not hold it, so db:seed aborts.
+    // The route line resolves to a global controller instead, which registers
+    // fine and 500s on the first request. Both targets keep an import list of
+    // their own: DatabaseSeeder already imports a UserSeeder, and the shipped
+    // route file opens with four controllers.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget',
+        '--seeder' => true, '--factory' => true, '--web' => true, '--api' => true,
+    ]);
+
+    // Both controllers in full, too: web and API share a short name and only
+    // the full one tells them apart.
+    expect(Artisan::output())
+        ->toContain('\App\ScaffoldFixture\Widgets\Infrastructure\Persistence\Seeders\WidgetSeeder::class,')
+        ->toContain('[\App\ScaffoldFixture\Widgets\Infrastructure\Http\Controllers\WidgetController::class,')
+        ->toContain('[\App\ScaffoldFixture\Widgets\Infrastructure\Http\Controllers\API\WidgetController::class,')
+        ->not->toContain('use App\ScaffoldFixture\Widgets');
+});
+
+test('it hints a distinct route for the api controller', function () {
+    // Sharing a URI does not add a second route: RouteCollection keys by
+    // method and URI, so the api route would replace the web one and take
+    // its name with it. Sharing a name resolves route() to whichever came
+    // first. Both have to differ.
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true, '--api' => true,
+    ])
+        ->expectsOutputToContain("Route::get('/widgets/{id}', [\\App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\WidgetController::class, 'show'])->name('widgets.show');")
+        // Guarded. bootRoutes() applies the api middleware group, which in
+        // Laravel is SubstituteBindings and nothing else, so a pasted route
+        // answers with no token.
+        ->expectsOutputToContain("Route::prefix('api')->middleware('auth:sanctum')->group(function () {")
+        ->expectsOutputToContain("Route::get('/widgets/{id}', [\\App\\ScaffoldFixture\\Widgets\\Infrastructure\\Http\\Controllers\\API\\WidgetController::class, 'show'])->name('api.widgets.show');")
         ->assertSuccessful();
-
-    expect(php_parses($provider))->toBeTrue();
 });
 
-test('it registers the migration path only when a migration is generated', function () {
+test('it says how to create the route file the hint points at', function () {
+    // The fixture context was created without --web, so following the hint
+    // literally yields a route file nothing loads and a silent 404.
+    // Read back rather than asserted through the console expectations: those
+    // are consumed one per emitted line, and both of these are on one line.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true]);
+
+    expect(Artisan::output())
+        ->toContain('That file does not exist yet')
+        ->toContain('ldd:make:bounded-context ScaffoldFixture --web');
+});
+
+test('it says nothing about creating a route file that is already there', function () {
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true])->assertSuccessful();
+
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true]);
+
+    // Anchored on something the run does print, so an empty output cannot
+    // pass this by saying nothing at all.
+    expect(Artisan::output())
+        ->toContain('Declare the web route')
+        ->not->toContain('That file does not exist yet');
+});
+
+test('the route hint is hedged and says what pasting it twice costs', function () {
+    // Nothing reads the route file any more, and RouteCollection keys by
+    // method and URI: a second copy of the canonical line replaces the first
+    // outright, so somebody who wrapped theirs in middleware loses it, with
+    // route:list showing one entry and no error anywhere.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true]);
+
+    expect(Artisan::output())
+        ->toContain('if it is not there already')
+        ->toContain('replaces the first, middleware and all')
+        // Said whether or not the file exists. A route file that is there and
+        // undeclared is the state with no symptom but a 404, and keying this
+        // on the file being absent meant the one run that could say so did not.
+        ->toContain('does not already name that file')
+        // The provider is already there, so that run cannot render $routes
+        // into it. It prints the entry instead.
+        ->toContain('that run prints the entry for you')
+        ->not->toContain('which also declares it');
+});
+
+test('it does not advise creating a page that already exists', function () {
+    File::ensureDirectoryExists($this->pages);
+    File::put("{$this->pages}/Show.vue", '<template><div /></template>');
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true])
+        ->doesntExpectOutputToContain('Create the page at')
+        ->assertSuccessful();
+});
+
+test('it says what a model it did not write still needs, naming every class in full', function () {
+    // The model is never rewritten, so adding an option later costs a line or
+    // two by hand. These lines go into a file this run did not write, and the
+    // classes named live in Domain\Events and Domain\Factories rather than
+    // beside it: pasted short, they resolve to the model's own namespace and
+    // to nothing at all.
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
 
-    expect(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')))
-        ->not->toContain('Widgets/Infrastructure/Persistence/Migrations');
+    $this->withoutMockingConsoleOutput();
 
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Gadget', '--migration' => true])
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true, '--factory' => true, '--migration' => true,
+    ]);
+
+    expect(Artisan::output())
+        ->toContain('already existed and was left as it is')
+        ->toContain('\App\ScaffoldFixture\Widgets\Domain\Events\WidgetCreated::new(')
+        ->toContain('use \Illuminate\Database\Eloquent\Factories\HasFactory;')
+        ->toContain(': \App\ScaffoldFixture\Widgets\Domain\Factories\WidgetFactory')
+        // An aggregate written before the factory base class existed declares
+        // new(): self and implements nothing, and the factory generated for it
+        // does not type check against AggregateFactory's template.
+        // The name alone. `implements <FQCN>,` is neither pasteable beside an
+        // interface the class already has nor valid on its own.
+        ->toContain('in its implements list if it is not there: \App\Shared\Domain\BuildsFromAttributes')
+        ->not->toContain('implements \App\Shared\Domain\BuildsFromAttributes,')
+        // The model keeps pointing at whatever table it declares, so a
+        // migration for another one creates a table nothing reads.
+        ->toContain("protected \$table = 'widgets';");
+});
+
+test('it says nothing about a model it wrote in this run', function () {
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true, '--factory' => true,
+    ]);
+
+    // The model this run wrote already carries both, so repeating the advice
+    // would have somebody redeclare newFactory(), which is fatal.
+    expect(Artisan::output())
+        ->toContain('Aggregate [Widget] created')
+        ->not->toContain('already existed and was left as it is');
+});
+
+test('re-running adds the missing piece without touching the model', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
+
+    $model = app_path('ScaffoldFixture/Widgets/Domain/Widget.php');
+    File::put($model, str_replace("        //\n    ];", "        'reference',\n    ];", File::get($model)));
+
+    // Adding an option you skipped is the reason to run this twice, and the
+    // model is where hand-written work accumulates.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
         ->assertSuccessful();
 
-    expect(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')))
-        ->toContain("__DIR__.'/Gadgets/Infrastructure/Persistence/Migrations',");
+    expect(app_path('ScaffoldFixture/Widgets/Domain/Events/WidgetCreated.php'))->toBeFile()
+        ->and(File::get($model))->toContain("'reference',")
+        ->and(File::get($model))->not->toContain('registerDomainEvent');
 });
 
 test('the aggregate records its creation only with the events flag', function () {
@@ -210,7 +368,18 @@ test('the aggregate records its creation only with the events flag', function ()
 
     expect(app_path('ScaffoldFixture/Gadgets/Domain/Events/GadgetCreated.php'))->toBeFile();
     expect(File::get(app_path('ScaffoldFixture/Gadgets/Domain/Gadget.php')))
-        ->toContain('registerDomainEvent(GadgetCreated::new($gadget->id))');
+        ->toContain('registerDomainEvent(GadgetCreated::new($gadget->id))')
+        ->toContain('use App\ScaffoldFixture\Gadgets\Domain\Events\GadgetCreated;');
+});
+
+test('it says that nothing publishes the generated event', function () {
+    // The aggregate records the event; only a use case publishes it. Without
+    // one the events pile up on the instance and vanish with it, which is the
+    // silent failure these commands exist to prevent.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
+        ->expectsOutputToContain('nothing publishes WidgetCreated')
+        ->expectsOutputToContain('ldd:make:use-case ScaffoldFixture Widget CreateWidget --publishes')
+        ->assertSuccessful();
 });
 
 test('the factory is routed through the aggregate factory method', function () {
@@ -224,41 +393,15 @@ test('the factory is routed through the aggregate factory method', function () {
         ->not->toContain('newModel');
 
     // Laravel would not find a factory outside Database\Factories, so the
-    // model has to point at it explicitly.
+    // model has to point at it explicitly, and both names it now uses have to
+    // be imported. A missing import parses, so php_parses() cannot see it and
+    // the fixture is deleted before Pint or PHPStan ever look: without these
+    // two lines, dropping either import from writeCore() leaves the suite
+    // green and Widget::factory() fatal on the first call.
     expect(File::get(app_path('ScaffoldFixture/Widgets/Domain/Widget.php')))
-        ->toContain('protected static function newFactory(): WidgetFactory');
-});
-
-test('it says what an older aggregate needs before a factory type checks', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
-        ->assertSuccessful();
-
-    // The shape an aggregate generated before AggregateFactory existed has.
-    $model = app_path('ScaffoldFixture/Widgets/Domain/Widget.php');
-
-    File::put($model, str_replace(
-        [
-            "use App\Shared\Domain\BuildsFromAttributes;\n",
-            'class Widget extends Model implements BuildsFromAttributes',
-            'public static function new(array $attributes = []): static',
-        ],
-        [
-            '',
-            'class Widget extends Model',
-            'public static function new(array $attributes = []): self',
-        ],
-        File::get($model)
-    ));
-
-    expect(File::get($model))->not->toContain('BuildsFromAttributes');
-
-    // The generated factory binds its template to the contract, so without
-    // this the aggregate gets a factory that does not pass static analysis
-    // and nothing says which two lines are missing.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--factory' => true])
-        ->expectsOutputToContain('implements BuildsFromAttributes')
-        ->expectsOutputToContain('new() to return static')
-        ->assertSuccessful();
+        ->toContain('protected static function newFactory(): WidgetFactory')
+        ->toContain('use Illuminate\Database\Eloquent\Factories\HasFactory;')
+        ->toContain('use App\ScaffoldFixture\Widgets\Domain\Factories\WidgetFactory;');
 });
 
 test('the aggregate declares the contract its factory builds through', function () {
@@ -324,16 +467,57 @@ test('generated controllers do not ship an unbounded read', function () {
     }
 });
 
+test('the generated model has a place to hide attributes', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--api' => true])
+        ->assertSuccessful();
+
+    // The API controller returns the model straight into a JsonResponse, so
+    // whatever reaches $fillable is published unless $hidden says otherwise.
+    // Anchored to a real property, not a mention in a comment.
+    expect(File::get(app_path('ScaffoldFixture/Widgets/Domain/Widget.php')))
+        ->toMatch('/^    protected \$hidden = \[/m');
+});
+
+test('the seeder flag generates a seeder and says to register it', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true])
+        // Which of the two lists it belongs in is a decision: reference data
+        // another seeder depends on has to come first, and sample data has no
+        // business running in production at all.
+        ->expectsOutputToContain('in $seeders')
+        ->expectsOutputToContain('or $fixtures, if it is sample data')
+        ->assertSuccessful();
+
+    // Without --factory the call is commented out: Widget::factory() would be
+    // fatal the first time somebody ran db:seed.
+    // The commented call is fully qualified: without --factory the seeder
+    // imports only Illuminate's Seeder, so the short name would resolve inside
+    // the seeder's own namespace and fatal db:seed the moment it is uncommented.
+    expect(File::get(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Seeders/WidgetSeeder.php')))
+        ->toContain('// \App\ScaffoldFixture\Widgets\Domain\Widget::factory()->count(10)->create();')
+        ->not->toContain("\n        Widget::factory()");
+});
+
+test('the seeder calls the factory when one was generated', function () {
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true, '--factory' => true,
+    ])->assertSuccessful();
+
+    $seeder = app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Seeders/WidgetSeeder.php');
+
+    // Anchored at the start of the statement, not on the substring: the
+    // commented-out placeholder contains it too, so this test passed over the
+    // exact body it exists to rule out.
+    expect(File::get($seeder))
+        ->toContain('use App\ScaffoldFixture\Widgets\Domain\Widget;')
+        ->toContain("\n        Widget::factory()->count(10)->create();")
+        ->and(php_parses($seeder))->toBeTrue();
+});
+
 test('it refuses names that are not valid PHP identifiers', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => '2024Report'])
         ->assertFailed();
 
     expect(app_path('ScaffoldFixture/2024Reports'))->not->toBeDirectory();
-
-    // The provider must be untouched: a mangled binding there takes the whole
-    // application down, not just the generated aggregate.
-    expect(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')))
-        ->not->toContain('2024');
 });
 
 test('it refuses PHP reserved words as aggregate names', function () {
@@ -353,52 +537,170 @@ test('it takes the aggregate name as written', function () {
     expect(app_path('ScaffoldFixture/Analyses/Domain/Analysis.php'))->toBeFile();
 });
 
-test('it wires a provider whose array holds only a comment', function () {
-    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
-
-    File::put($provider, str_replace(
-        'public array $bindings = [];',
-        'public array $bindings = [/* add bindings here */];',
-        File::get($provider)
-    ));
-
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
+test('it pluralises the aggregate directory and studlies the class', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'widget'])
         ->assertSuccessful();
 
-    // A comment is not an element: emitting it as one produces `[,` and a
-    // provider that does not parse, while the command reports success.
-    expect(php_parses($provider))->toBeTrue();
+    expect(app_path('ScaffoldFixture/Widgets/Domain/Widget.php'))->toBeFile();
 });
 
-test('it does not duplicate imports when the provider has several groups', function () {
-    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
-
-    File::put($provider, str_replace(
-        'use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;',
-        "use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;\n\n// the developer's own group\nuse Illuminate\Support\Str;",
-        File::get($provider)
-    ));
-
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
-        ->assertSuccessful();
-
-    expect(substr_count(File::get($provider), 'use Illuminate\Support\Str;'))->toBe(1)
-        ->and(php_parses($provider))->toBeTrue();
+test('it refuses an unknown bounded context', function () {
+    // Prerequisites cascade and nothing is generated upwards: the context
+    // comes first, and it is the one thing that is wired on creation.
+    $this->artisan('ldd:make:aggregate', ['context' => 'Nope', 'name' => 'Widget'])
+        ->expectsOutputToContain('ldd:make:bounded-context Nope')
+        ->assertFailed();
 });
 
-test('it refuses a table another context already creates', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true])
-        ->assertSuccessful();
-
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldOther'])->assertSuccessful();
-
-    // Both would Schema::create('widgets') and abort migrate on a fresh database.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldOther', 'name' => 'Widget', '--migration' => true])
+test('it refuses to scaffold into the Shared foundation layer', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'Shared', 'name' => 'Widget'])
         ->assertFailed();
 
+    expect(app_path('Shared/Widgets'))->not->toBeDirectory();
+});
+
+test('it refuses the Shared foundation layer however it is typed', function () {
+    // Str::studly leaves inner case alone, so `sHared` arrives as `SHared`,
+    // which is not === 'Shared'. On a case-insensitive filesystem the
+    // prerequisite check then finds app/SHared/SHaredServiceProvider.php and
+    // the aggregate is scaffolded straight into the foundation layer.
+    // Anchored on the guard's own message. On a case-sensitive filesystem,
+    // which is what CI runs, the prerequisite check refuses SHared anyway for
+    // an unrelated reason, so assertFailed() alone stays green with the guard
+    // deleted and the regression only shows on a macOS checkout.
+    $this->artisan('ldd:make:aggregate', ['context' => 'sHared', 'name' => 'Widget'])
+        ->expectsOutputToContain('[Shared] is the foundation layer')
+        ->assertFailed();
+
+    // Asserted on the real directory, not on the spelling: app/SHared and
+    // app/Shared are the same directory on a case-insensitive filesystem,
+    // which is half of why this got through.
+    expect(app_path('Shared/Widgets'))->not->toBeDirectory();
+});
+
+test('it says a table another context owns is shared, even with no migration asked for', function () {
+    // The collision belongs to the table, not to this run. With --migration it
+    // is fatal: two create migrations abort migrate on a fresh database. Asked
+    // only under that flag, the quieter half went unmentioned, and the
+    // aggregate silently shared a table another context owns.
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Job']);
+
+    expect(Artisan::output())
+        ->toContain('already has a create migration')
+        ->toContain('app/Shared/Infrastructure/Persistence/Migrations');
+
+    // And it is a note, not a refusal: without a migration nothing breaks.
+    expect(app_path('ScaffoldFixture/Jobs/Domain/Job.php'))->toBeFile();
+});
+
+test('table on a re-run without migration is not accepted in silence', function () {
+    // --table alone over an existing model does nothing at all: the model is
+    // not rewritten and no migration is generated, so the option used to be
+    // taken and discarded without a word.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
+
+    $this->withoutMockingConsoleOutput();
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--table' => 'renamed']);
+
+    expect(Artisan::output())->toContain("protected \$table = 'renamed';");
+});
+
+test('it says a seeder left as it is may still hold the placeholder', function () {
+    // Nothing rewrites a seeder that is there, so adding --factory later
+    // renders the live body and throws it away. Registering that seeder is
+    // worse than not registering it: db:seed reports it as run and inserts
+    // nothing.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true])
+        ->assertSuccessful();
+
+    $this->withoutMockingConsoleOutput();
+
     $this->artisan('ldd:make:aggregate', [
-        'context' => 'ScaffoldOther', 'name' => 'Widget', '--migration' => true, '--table' => 'other_widgets',
-    ])->assertSuccessful();
+        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true, '--factory' => true,
+    ]);
+
+    expect(Artisan::output())->toContain('still the commented-out placeholder');
+});
+
+test('it refuses a context whose real spelling on disk is different', function () {
+    // The filesystem answers yes to any casing on macOS, so this passed the
+    // prerequisite check, wrote into the real app/IdentityAndAccess and
+    // declared namespace App\Identityandaccess in every file. It exits 0, it
+    // commits, and on Linux PSR-4 resolves none of it.
+    $this->artisan('ldd:make:aggregate', ['context' => 'identityandaccess', 'name' => 'Probe'])
+        ->expectsOutputToContain('The bounded context on disk is [IdentityAndAccess]')
+        ->assertFailed();
+
+    expect(app_path('IdentityAndAccess/Probes'))->not->toBeDirectory();
+})->skip(
+    ! is_dir(dirname(__DIR__, 3).'/app/identityandaccess'),
+    'the filesystem is case-sensitive, so the name cannot collide'
+);
+
+test('it refuses to put a second aggregate root in one directory', function () {
+    // Str::plural leaves a plural alone, so this resolves to the Widgets
+    // directory Widget already owns and used to drop a second root, contract
+    // and repository beside it, mapped to the same table. target() sends you
+    // here by name when a use case is asked for with the plural.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widgets'])
+        ->expectsOutputToContain('already holds the aggregate [Widget]')
+        ->assertFailed();
+
+    expect(app_path('ScaffoldFixture/Widgets/Domain/Widgets.php'))->not->toBeFile();
+});
+
+test('a mis-cased aggregate is told the spelling, not blamed for a table collision', function () {
+    // Compared as strings, the aggregate's own migrations directory reads as
+    // another aggregate's, so the run was refused for colliding with itself
+    // and advised to rename its table. The guard that says what is actually
+    // wrong ran after it.
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'IdentityAndAccess', 'name' => 'ApiToken', '--migration' => true,
+    ])
+        ->expectsOutputToContain('The aggregate directory on disk is [APITokens]')
+        ->assertFailed();
+})->skip(
+    ! is_dir(dirname(__DIR__, 3).'/app/IdentityAndAccess/apitokens'),
+    'the filesystem is case-sensitive, so the name cannot collide'
+);
+
+test('it refuses a table database/migrations already creates', function () {
+    // migrate always merges database_path('migrations') with whatever the
+    // providers register, so a table Laravel's own make:migration created
+    // there collides just as hard, and the guard never looked.
+    $dir = database_path('migrations');
+    $file = "{$dir}/2026_01_01_000000_create_widgets_table.php";
+
+    File::ensureDirectoryExists($dir);
+    File::put($file, "<?php\n");
+
+    try {
+        $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true])
+            ->expectsOutputToContain('database/migrations')
+            ->assertFailed();
+    } finally {
+        File::delete($file);
+    }
+});
+
+test('the seeder body follows the factory on disk, not the flag', function () {
+    // --factory first and --seeder second rendered the dead placeholder over a
+    // factory that was right there, and db:seed then reports the seeder as run
+    // while inserting nothing.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--factory' => true])
+        ->assertSuccessful();
+
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true])
+        ->assertSuccessful();
+
+    expect(File::get(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Seeders/WidgetSeeder.php')))
+        ->toContain("\n        Widget::factory()->count(10)->create();")
+        ->toContain('use App\ScaffoldFixture\Widgets\Domain\Widget;');
 });
 
 test('it refuses a table name that is not a valid identifier', function () {
@@ -411,30 +713,38 @@ test('it refuses a table name that is not a valid identifier', function () {
     expect(app_path('ScaffoldFixture/Widgets'))->not->toBeDirectory();
 });
 
-test('it does not bind twice when the provider was reformatted', function () {
-    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
-
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
-
-    File::put($provider, str_replace(
-        '        \App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,',
-        '            \App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class   => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,',
-        File::get($provider)
-    ));
-
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
+test('it refuses a table another context already creates', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true])
         ->assertSuccessful();
 
-    // EloquentWidgetRepository::class contains WidgetRepository::class, so
-    // count the mapping rather than the bare class reference.
-    expect(substr_count(File::get($provider), '=> \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class'))->toBe(1);
-});
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldOther'])->assertSuccessful();
 
-test('it refuses to scaffold into the Shared foundation layer', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'Shared', 'name' => 'Widget'])
+    // Both would Schema::create('widgets') and abort migrate on a fresh database.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldOther', 'name' => 'Widget', '--migration' => true])
+        ->expectsOutputToContain('already has a create migration')
         ->assertFailed();
 
-    expect(app_path('Shared/Widgets'))->not->toBeDirectory();
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldOther', 'name' => 'Widget', '--migration' => true, '--table' => 'other_widgets',
+    ])->assertSuccessful();
+});
+
+test('it refuses a table Shared already creates a migration for', function () {
+    // Aggregates keep their migrations two segments into app/, and Shared
+    // keeps the framework's own one segment in. Scanning only the first meant
+    // an aggregate called Job put a second create_jobs_table beside Shared's,
+    // and two create migrations for one table abort migrate on a fresh
+    // database.
+    //
+    // The guard reads migration filenames, which is the convention every
+    // migration this application generates follows. A hand-written migration
+    // creating a table its filename does not name is not covered, and that
+    // failure is loud: migrate stops and says which table it is.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Job', '--migration' => true])
+        ->expectsOutputToContain('app/Shared/Infrastructure/Persistence/Migrations')
+        ->assertFailed();
+
+    expect(app_path('ScaffoldFixture/Jobs'))->not->toBeDirectory();
 });
 
 test('it reuses the migration filename instead of duplicating it', function () {
@@ -449,6 +759,13 @@ test('it reuses the migration filename instead of duplicating it', function () {
         File::get($migration)
     ));
 
+    // Renamed to something the second run cannot recompute. Both runs land in
+    // the same second, so date('Y_m_d_His') alone produces the same filename
+    // and put() skips it: the test passed with the reuse deleted.
+    $renamed = dirname($migration).'/0000_00_00_000000_create_widgets_table.php';
+    File::move($migration, $renamed);
+    $migration = $renamed;
+
     $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
 
     // Two create-table migrations would abort `migrate` on a fresh database,
@@ -459,305 +776,12 @@ test('it reuses the migration filename instead of duplicating it', function () {
         ->and(File::get($migration))->toContain("\$table->string('reference')->unique();");
 });
 
-test('it wires a provider whose arrays are declared inline', function () {
-    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
-
-    File::put($provider, str_replace(
-        'public array $bindings = [];',
-        'public array $bindings = [FooRepository::class => EloquentFooRepository::class];',
-        File::get($provider)
-    ));
-
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
-        ->assertSuccessful();
-
-    expect(File::get($provider))
-        ->toContain('FooRepository::class => EloquentFooRepository::class,')
-        ->toContain('\App\ScaffoldFixture\Widgets\Domain\Contracts\WidgetRepository::class => \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class,');
-});
-
-test('it pluralises the aggregate directory and studlies the class', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'widget'])
-        ->assertSuccessful();
-
-    expect(app_path('ScaffoldFixture/Widgets/Domain/Widget.php'))->toBeFile();
-});
-
-test('it refuses an unknown bounded context', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'Nope', 'name' => 'Widget'])
-        ->assertFailed();
-});
-
-test('the generated model has a place to hide attributes', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--api' => true])
-        ->assertSuccessful();
-
-    // The API controller returns the model straight into a JsonResponse, so
-    // whatever reaches $fillable is published unless $hidden says otherwise.
-    // Anchored to a real property, not a mention in a comment.
-    expect(File::get(app_path('ScaffoldFixture/Widgets/Domain/Widget.php')))
-        ->toMatch('/^    protected \$hidden = \[/m');
-});
-
-test('it says that nothing publishes the generated event', function () {
-    // The aggregate records the event; only a use case publishes it. Without
-    // one the events pile up on the instance and vanish with it, which is the
-    // silent failure these commands exist to prevent.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
-        ->expectsOutputToContain('Nothing publishes WidgetCreated.')
-        ->expectsOutputToContain('publishDomainEvents($this->eventBus)')
-        ->assertSuccessful();
-});
-
-test('it stays quiet when the application layer already publishes', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
-        ->assertSuccessful();
-
-    $application = app_path('ScaffoldFixture/Widgets/Application');
-    File::ensureDirectoryExists($application);
-    // A real call, not a mention of one: the command reads this file rather
-    // than searching it, so a commented line would not count and should not.
-    File::put("{$application}/CreateWidget.php", "<?php\n\n\$widget->publishDomainEvents(\$this->eventBus);\n");
-
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
-        ->doesntExpectOutputToContain('Nothing publishes WidgetCreated.')
-        ->assertSuccessful();
-
-    // One it cannot read may be the use case that publishes, and both commands
-    // ask this through one helper so they cannot answer it differently.
-    File::put("{$application}/CreateWidget.php", "<?php\n\nclass CreateWidget {\n");
-
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
-        ->expectsOutputToContain('Could not tell whether anything publishes')
-        ->doesntExpectOutputToContain('Nothing publishes WidgetCreated.')
-        ->assertSuccessful();
-
-    $this->artisan('ldd:make:use-case', ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'UpdateWidget'])
-        ->expectsOutputToContain('Could not tell whether anything publishes')
-        ->doesntExpectOutputToContain('records domain events')
-        ->assertSuccessful();
-});
-
-test('it does not re-advise a route the file already declares', function () {
-    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true];
-
-    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
-
-    $routes = app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes');
-    File::ensureDirectoryExists($routes);
-    // Imported, the way a route file that actually loads has to be: without
-    // the use statement WidgetController::class means the global one, and
-    // the command is right to say the controller is not wired here.
-    File::put("{$routes}/web.php", implode("\n", [
-        '<?php',
-        '',
-        'use App\ScaffoldFixture\Widgets\Infrastructure\Http\Controllers\WidgetController;',
-        '',
-        "Route::middleware('auth')->get('/widgets/{id}', [WidgetController::class, 'show'])->name('widgets.show');",
-        '',
-    ]));
-
-    // Pasting the canonical route back replaces the customised one, since
-    // RouteCollection keys by method and URI, and the auth middleware is
-    // gone with no error anywhere.
-    $this->artisan('ldd:make:aggregate', $args)
-        ->doesntExpectOutputToContain("->name('widgets.show')")
-        ->assertSuccessful();
-});
-
-test('it does not advise creating a page that already exists', function () {
-    File::ensureDirectoryExists($this->pages);
-    File::put("{$this->pages}/Show.vue", '<template><div /></template>');
-
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true])
-        ->doesntExpectOutputToContain('Create the page at')
-        ->assertSuccessful();
-});
-
-test('re-running with the same flags advises nothing', function () {
-    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true, '--factory' => true];
-
-    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
-
-    // The model already carries both. Repeating the advice would redeclare
-    // newFactory(), which is fatal, and register the event a second time.
-    $this->artisan('ldd:make:aggregate', $args)
-        ->doesntExpectOutputToContain('Add to it by hand')
-        ->assertSuccessful();
-});
-
-test('it refuses a migration for a table the model does not declare', function () {
-    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true];
-
-    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
-
-    // The model keeps pointing at widgets, so this migration would create a
-    // second table that nothing reads.
-    $this->artisan('ldd:make:aggregate', $args + ['--table' => 'renamed'])->assertFailed();
-
-    expect(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*.php')))
-        ->toHaveCount(1);
-});
-
-/*
- * Every question this command asks of an existing model answers false when it
- * does not parse, so unreadable would otherwise read as "declares no table",
- * which is exactly what the guard above takes as permission to proceed.
- */
-test('it refuses to reason about a model it cannot read', function (string $contents, string $reason) {
-    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true];
-
-    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
-
-    File::put(app_path('ScaffoldFixture/Widgets/Domain/Widget.php'), $contents);
-
-    $this->artisan('ldd:make:aggregate', $args + ['--table' => 'renamed'])
-        ->expectsOutputToContain($reason)
-        ->assertFailed();
-
-    // The mismatched migration an unread model would have waved through: a
-    // second create table for an aggregate that already has one.
-    expect(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*.php')))
-        ->toHaveCount(1);
-})->with([
-    // Answers false to every question because it never parsed.
-    'unparseable' => ["<?php\n\nclass Widget extends Model {\n", 'does not parse'],
-    // Parses perfectly well, and holds no aggregate to answer for.
-    'empty' => ["<?php\n", 'declares no class Widget'],
-    // Parses, holds a class, but not the one being reasoned about.
-    'another class' => ["<?php\n\nclass Gadget {}\n", 'declares no class Widget'],
-]);
-
-test('it says a DatabaseSeeder it cannot read is unread, rather than advising a duplicate', function () {
-    $seeder = app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php');
-    $backup = File::get($seeder);
-
-    File::put($seeder, "<?php\n\nnamespace Database\Seeders;\n\nclass DatabaseSeeder {\n");
-
-    try {
-        $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true])
-            ->expectsOutputToContain('does not parse')
-            ->doesntExpectOutputToContain('WidgetSeeder::class,')
-            ->assertSuccessful();
-    } finally {
-        File::put($seeder, $backup);
-    }
-});
-
-test('re-running adds the missing piece without touching the model', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
-
-    $model = app_path('ScaffoldFixture/Widgets/Domain/Widget.php');
-    File::put($model, str_replace("        //\n    ];", "        'reference',\n    ];", File::get($model)));
-
-    // Adding an option you skipped is the reason to run this twice, and the
-    // model is where hand-written work accumulates.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
-        ->expectsOutputToContain('Widget was left as it is. Add to it by hand:')
-        ->assertSuccessful();
-
-    expect(app_path('ScaffoldFixture/Widgets/Domain/Events/WidgetCreated.php'))->toBeFile()
-        ->and(File::get($model))->toContain("'reference',")
-        ->and(File::get($model))->not->toContain('registerDomainEvent');
-});
-
-test('it hints a distinct route for the api controller', function () {
-    // Sharing a URI does not add a second route: RouteCollection keys by
-    // method and URI, so the api route would replace the web one and take
-    // its name with it. Sharing a name resolves route() to whichever came
-    // first. Both have to differ.
-    $this->artisan('ldd:make:aggregate', [
-        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true, '--api' => true,
-    ])
-        // One expectation per emitted line: each is consumed as it matches,
-        // so URI and name go in the same assertion rather than two. The api
-        // URI is kept apart by the prefix group, the convention the rest of
-        // the application already follows.
-        ->expectsOutputToContain("Route::get('/widgets/{id}', [WidgetController::class, 'show'])->name('widgets.show');")
-        // Guarded. This assertion pinned the guardless form, so every
-        // scaffolded aggregate shipped a public read endpoint and the suite
-        // called it correct.
-        ->expectsOutputToContain("Route::prefix('api')->middleware('auth:sanctum')->group(function () {")
-        ->expectsOutputToContain("Route::get('/widgets/{id}', [WidgetController::class, 'show'])->name('api.widgets.show');")
-        ->assertSuccessful();
-});
-
-test('it does not register the migration path twice', function () {
-    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true];
-
-    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
-    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
-
-    // A second entry would load the same directory twice.
-    expect(substr_count(
-        File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')),
-        "__DIR__.'/Widgets/Infrastructure/Persistence/Migrations'"
-    ))->toBe(1);
-});
-
-test('it recognises a migration path however the provider is formatted', function () {
-    $args = ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true];
-    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
-
-    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
-
-    // The entry is read from the declaration, not matched as a formatted line,
-    // so re-indenting it no longer hides it and earn a duplicate.
-    File::put($provider, str_replace(
-        "        __DIR__.'/Widgets/Infrastructure/Persistence/Migrations',",
-        "            __DIR__ . '/Widgets/Infrastructure/Persistence/Migrations',",
-        File::get($provider)
-    ));
-
-    $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
-
-    expect(substr_count(File::get($provider), "/Widgets/Infrastructure/Persistence/Migrations'"))->toBe(1);
-});
-
-test('it refuses to wire into a provider that does not parse', function () {
-    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
-
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])->assertSuccessful();
-
-    File::put($provider, str_replace(
-        'class ScaffoldFixtureServiceProvider',
-        'class ScaffoldFixtureServiceProvider(',
-        File::get($provider)
-    ));
-
-    // Reading it as empty would bind the repository a second time.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
-        ->assertFailed();
-
-    expect(substr_count(File::get($provider), '=> \App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository::class'))->toBe(1);
-});
-
-test('it fails when the context provider has nothing to wire', function () {
-    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
-
-    File::put($provider, "<?php\n\nnamespace App\ScaffoldFixture;\n\nuse ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;\n\nclass ScaffoldFixtureServiceProvider extends BoundedContextServiceProvider\n{\n}\n");
-
-    // Reporting success would leave an aggregate whose repository contract
-    // resolves to nothing, which is the whole point of the wiring step.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget'])
-        ->assertFailed();
-
-    // A provider it could not wire must be left exactly as it was, not
-    // carrying imports for a binding that never landed.
-    expect(File::get($provider))->not->toContain('WidgetRepository');
-});
-
-test('it warns when the route file the hint points at does not exist', function () {
-    // The fixture context was created without --web, so following the hint
-    // literally yields a route file nothing loads and a silent 404.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--web' => true])
-        ->expectsOutputToContain('That file does not exist yet')
-        ->assertSuccessful();
-});
-
 test('everything it generates parses', function () {
-    // The delegated flags are named here too: --all does not cover them, and
-    // the provider they edit is the file most likely to end up unparseable.
+    // The delegated flags are named here too: --all does not cover them. With
+    // no compile check left, this is the only thing standing between a typo in
+    // a stub and a green run: every other test asserts on substrings and file
+    // existence, and the fixture is deleted in teardown, so CI's Pint,
+    // PHPStan and arch legs never see the generated code.
     $this->artisan('ldd:make:aggregate', [
         'context' => 'ScaffoldFixture',
         'name' => 'Widget',
@@ -768,9 +792,6 @@ test('everything it generates parses', function () {
         '--command' => ['SyncWidgets'],
     ])->assertSuccessful();
 
-    // The fixture is deleted in teardown, so CI's Pint, PHPStan and arch legs
-    // never see the generated code. Without this, a typo in any stub ships
-    // green: every other test asserts on substrings and file existence.
     $files = File::allFiles(app_path('ScaffoldFixture'));
 
     expect($files)->not->toBeEmpty();
@@ -779,6 +800,116 @@ test('everything it generates parses', function () {
         expect(php_parses($file->getPathname()))
             ->toBeTrue("{$file->getRelativePathname()} does not parse");
     }
+});
+
+/*
+ * The one test that samples the space the review rounds have been sampling one
+ * point at a time. Almost every defect these commands have had needed a second
+ * run over something already on disk, and the suite around this one tests the
+ * first run: 13 write sites in ldd:make:aggregate alone, each present or
+ * absent, times the provider, the route files and the aggregates beside it.
+ *
+ * So: the order a real project actually reaches, one flag at a time, across
+ * all four commands, and then the two things that have to hold whatever the
+ * order was.
+ */
+test('a realistic sequence of runs leaves a tree that compiles and files nobody touched', function () {
+    $ctx = ['context' => 'ScaffoldFixture'];
+    $agg = $ctx + ['aggregate' => 'Widget'];
+
+    $before = File::get($this->provider);
+    $providersBefore = File::get($this->providers);
+
+    $runs = [
+        // The aggregate grows an option at a time, which is what the commands
+        // are documented to support and where the model, the seeder and the
+        // migration all become files a later run must not rewrite.
+        ['ldd:make:aggregate', $ctx + ['name' => 'Widget']],
+        ['ldd:make:aggregate', $ctx + ['name' => 'Widget', '--events' => true]],
+        ['ldd:make:aggregate', $ctx + ['name' => 'Widget', '--seeder' => true]],
+        ['ldd:make:aggregate', $ctx + ['name' => 'Widget', '--seeder' => true, '--factory' => true]],
+        ['ldd:make:aggregate', $ctx + ['name' => 'Widget', '--all' => true, '--command' => ['SyncWidgets']]],
+        // A second aggregate in the same context, which is the common case the
+        // redesign made cost a paste.
+        ['ldd:make:aggregate', $ctx + ['name' => 'Gadget', '--all' => true]],
+        // Then the layers above it, each run twice: once creating, once over
+        // its own output.
+        ['ldd:make:use-case', $agg + ['name' => 'CreateWidget']],
+        ['ldd:make:use-case', $agg + ['name' => 'CreateWidget', '--publishes' => true]],
+        ['ldd:make:event-handler', $agg + ['name' => 'NotifyAccounting']],
+        ['ldd:make:event-handler', $agg + ['name' => 'NotifyAccounting', '--queued' => true]],
+        // And the context itself, gaining route files after everything else
+        // exists, which is the path ldd:make:aggregate --web prints.
+        ['ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true]],
+        ['ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--api' => true]],
+    ];
+
+    foreach ($runs as [$command, $arguments]) {
+        $this->artisan($command, $arguments)->assertSuccessful();
+    }
+
+    // Everything on disk still compiles. A stub that only breaks on a re-run,
+    // an import added twice, a body rendered against the wrong flags: all of
+    // it lands here and nowhere else, because the fixture is deleted in
+    // teardown and CI's Pint, PHPStan and arch legs never see it.
+    $files = File::allFiles(app_path('ScaffoldFixture'));
+
+    expect($files)->not->toBeEmpty();
+
+    foreach ($files as $file) {
+        expect(php_parses($file->getPathname()))
+            ->toBeTrue("{$file->getRelativePathname()} does not compile after the sequence");
+    }
+
+    // Loaded, not just parsed. A missing import parses perfectly well, which
+    // is why php_parses() could never see one, and PHP resolves the parent,
+    // the interfaces and the traits at class-load time: `use HasFactory;` with
+    // no import fails here and nowhere else in this suite. The fixture lives
+    // under app/, so composer's PSR-4 map for App\ autoloads it as-is.
+    $loads = [
+        'App\ScaffoldFixture\Widgets\Domain\Widget',
+        'App\ScaffoldFixture\Widgets\Domain\Factories\WidgetFactory',
+        'App\ScaffoldFixture\Widgets\Domain\Events\WidgetCreated',
+        'App\ScaffoldFixture\Widgets\Infrastructure\Persistence\EloquentWidgetRepository',
+        'App\ScaffoldFixture\Widgets\Infrastructure\Persistence\Seeders\WidgetSeeder',
+        'App\ScaffoldFixture\Widgets\Infrastructure\Http\Controllers\WidgetController',
+        'App\ScaffoldFixture\Widgets\Application\CreateWidget',
+        'App\ScaffoldFixture\Widgets\Application\EventHandlers\NotifyAccounting',
+        // Gadget is the other shape, and the one that matters here: written
+        // with every flag in a single run, so its model carries the factory
+        // trait and the event registration. Widget grew a flag at a time, so
+        // its model was written bare and never gains either, which is what
+        // made this list miss a lost import the first time it was mutated.
+        'App\ScaffoldFixture\Gadgets\Domain\Gadget',
+        'App\ScaffoldFixture\Gadgets\Domain\Factories\GadgetFactory',
+        'App\ScaffoldFixture\Gadgets\Infrastructure\Http\Controllers\API\GadgetController',
+        'App\ScaffoldFixture\Gadgets\Infrastructure\Http\Resources\GadgetResource',
+    ];
+
+    foreach ($loads as $class) {
+        expect(class_exists($class))->toBeTrue("{$class} does not load after the sequence");
+    }
+
+    // And nothing outside what the runs created was touched. The provider is
+    // byte for byte what the first command wrote, and bootstrap/providers.php
+    // is what registering this context once left: addProviderToBootstrapFile
+    // is idempotent, so eleven more runs must not move it either.
+    expect(File::get($this->provider))->toBe($before)
+        ->and(File::get($this->providers))->toBe($providersBefore);
+});
+
+test('all generates every optional piece', function () {
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--all' => true])
+        ->assertSuccessful();
+
+    expect(app_path('ScaffoldFixture/Widgets/Domain/Events/WidgetCreated.php'))->toBeFile()
+        ->and(app_path('ScaffoldFixture/Widgets/Domain/Factories/WidgetFactory.php'))->toBeFile()
+        ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Seeders/WidgetSeeder.php'))->toBeFile()
+        ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Requests/StoreWidgetRequest.php'))->toBeFile()
+        ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Controllers/WidgetController.php'))->toBeFile()
+        ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Controllers/API/WidgetController.php'))->toBeFile()
+        ->and(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*_create_widgets_table.php')))
+        ->toHaveCount(1);
 });
 
 /*
@@ -807,69 +938,16 @@ test('the delegated flags place Laravel generators inside the aggregate', functi
         ->toContain('namespace App\ScaffoldFixture\Widgets\Application\Mail;');
 });
 
-/*
- * Laravel only autodiscovers app/Console/Commands, so a console command
- * anywhere else exists as a file and as nothing else until the provider says
- * so. That is the failure this flag is really for.
- */
-test('a delegated console command is declared in the provider', function () {
-    $this->artisan('ldd:make:aggregate', [
-        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncWidgets'],
-    ])->assertSuccessful();
+test('it does not ask for a console command twice when the flag is repeated', function () {
+    // Artisan reuses the command instance between calls in one process, so
+    // per-run state has to be reset before each run rather than accumulated.
+    $this->withoutMockingConsoleOutput();
 
-    // Declared by its full name and deliberately not imported, so that a
-    // command sharing a short name with anything else here cannot collide.
-    expect(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')))
-        ->toContain('\App\ScaffoldFixture\Widgets\Infrastructure\Console\Commands\SyncWidgets::class,')
-        ->not->toContain('use App\ScaffoldFixture\Widgets\Infrastructure\Console\Commands\SyncWidgets;');
-});
-
-test('it declares a console command an earlier run left unwired', function () {
-    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
-
-    $this->artisan('ldd:make:aggregate', [
-        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncWidgets'],
-    ])->assertSuccessful();
-
-    // The file stays, the wiring goes: the command has to register what is on
-    // disk, not only what this run happened to write.
-    File::put($provider, str_replace(
-        '        \App\ScaffoldFixture\Widgets\Infrastructure\Console\Commands\SyncWidgets::class,'."\n",
-        '',
-        File::get($provider)
-    ));
-
-    // The revert is the whole premise, so it is asserted rather than assumed:
-    // a str_replace that matched nothing would make this test vacuous.
-    expect(File::get($provider))->not->toContain('SyncWidgets');
-
-    $this->artisan('ldd:make:aggregate', [
-        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncWidgets'],
-    ])->assertSuccessful();
-
-    expect(File::get($provider))->toContain('SyncWidgets::class,');
-});
-
-test('it does not declare a console command twice', function () {
-    foreach ([1, 2] as $run) {
-        $this->artisan('ldd:make:aggregate', [
-            'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncWidgets'],
-        ])->assertSuccessful();
-    }
-
-    expect(substr_count(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')), 'SyncWidgets::class,'))
-        ->toBe(1);
-});
-
-test('it does not declare a repeated console command flag twice', function () {
-    // Repeating the flag is the case the re-run guard cannot see: it reads the
-    // provider as it was before this run, not what this run is adding.
     $this->artisan('ldd:make:aggregate', [
         'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncWidgets', 'SyncWidgets'],
-    ])->assertSuccessful();
+    ]);
 
-    expect(substr_count(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')), 'SyncWidgets::class,'))
-        ->toBe(1);
+    expect(substr_count(Artisan::output(), 'SyncWidgets::class,'))->toBe(1);
 });
 
 test('it fails when a delegated name is refused', function () {
@@ -886,87 +964,19 @@ test('it fails when a delegated name is refused', function () {
         ->and(app_path('ScaffoldFixture/Widgets/Application/Mail'))->not->toBeDirectory();
 });
 
-/*
- * A console command's name is free text, so nothing stops it colliding with
- * another aggregate's or with something the provider already imports. Two use
- * statements resolving to one short name is fatal, and it takes down the whole
- * application rather than just this context.
- */
-test('console commands sharing a short name do not collide in the provider', function () {
-    $this->artisan('ldd:make:aggregate', [
-        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['SyncThings'],
-    ])->assertSuccessful();
+test('the report does not carry from one run into the next', function () {
+    // Artisan reuses the command instance between calls in one process, which
+    // is how a per-run list on a property leaks: the second run would repeat
+    // the first one's bindings alongside its own.
+    $this->withoutMockingConsoleOutput();
 
-    $this->artisan('ldd:make:aggregate', [
-        'context' => 'ScaffoldFixture', 'name' => 'Gadget', '--command' => ['SyncThings'],
-    ])->assertSuccessful();
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget']);
 
-    // Named after the repository contract the command imports for itself.
-    $this->artisan('ldd:make:aggregate', [
-        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--command' => ['WidgetRepository'],
-    ])->assertSuccessful();
+    Artisan::output();
 
-    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Gadget']);
 
-    expect(php_parses($provider))->toBeTrue('the provider does not parse')
-        ->and(substr_count(File::get($provider), 'SyncThings::class,'))->toBe(2);
-});
-
-/*
- * The seeder is the one generated file whose body depends on another flag,
- * and the only hint pointing at a file outside the context.
- */
-test('the seeder flag generates a seeder and says to register it', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true])
-        ->expectsOutputToContain('WidgetSeeder::class,')
-        ->assertSuccessful();
-
-    // Without --factory the call is commented out: Widget::factory() would be
-    // fatal the first time somebody ran db:seed.
-    expect(File::get(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Seeders/WidgetSeeder.php')))
-        ->toContain('// Widget::factory()->count(10)->create();')
-        ->not->toContain("\n        Widget::factory()");
-});
-
-test('the seeder calls the factory when one was generated', function () {
-    $this->artisan('ldd:make:aggregate', [
-        'context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true, '--factory' => true,
-    ])->assertSuccessful();
-
-    expect(File::get(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Seeders/WidgetSeeder.php')))
-        ->toContain('use App\ScaffoldFixture\Widgets\Domain\Widget;')
-        ->toContain('Widget::factory()->count(10)->create();');
-});
-
-test('it does not re-advise a seeder DatabaseSeeder already lists', function () {
-    $databaseSeeder = app_path('Shared/Infrastructure/Persistence/Seeders/DatabaseSeeder.php');
-    $backup = File::get($databaseSeeder);
-
-    File::put($databaseSeeder, str_replace(
-        'use Illuminate\Database\Seeder;',
-        "use App\ScaffoldFixture\Widgets\Infrastructure\Persistence\Seeders\WidgetSeeder;\nuse Illuminate\Database\Seeder;",
-        str_replace('private array $seeders = [];', 'private array $seeders = [WidgetSeeder::class];', $backup)
-    ));
-
-    try {
-        $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--seeder' => true])
-            ->doesntExpectOutputToContain('WidgetSeeder::class,')
-            ->assertSuccessful();
-    } finally {
-        File::put($databaseSeeder, $backup);
-    }
-});
-
-test('all generates every optional piece', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--all' => true])
-        ->assertSuccessful();
-
-    expect(app_path('ScaffoldFixture/Widgets/Domain/Events/WidgetCreated.php'))->toBeFile()
-        ->and(app_path('ScaffoldFixture/Widgets/Domain/Factories/WidgetFactory.php'))->toBeFile()
-        ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Seeders/WidgetSeeder.php'))->toBeFile()
-        ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Requests/StoreWidgetRequest.php'))->toBeFile()
-        ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Controllers/WidgetController.php'))->toBeFile()
-        ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Controllers/API/WidgetController.php'))->toBeFile()
-        ->and(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*_create_widgets_table.php')))
-        ->toHaveCount(1);
+    expect(Artisan::output())
+        ->toContain('GadgetRepository::class')
+        ->not->toContain('WidgetRepository::class');
 });

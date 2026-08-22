@@ -52,7 +52,12 @@ class SharedServiceProvider extends BoundedContextServiceProvider
     {
         parent::boot();
 
-        Model::shouldBeStrict();
+        // Off in production. Lazy loading and a missing attribute are worth a
+        // hard failure while you are writing the code, and a 500 in front of a
+        // user for a query somebody narrowed with select() is not: Inertia
+        // materialises $appends, so User::query()->select('id', 'name') is
+        // enough to reach one. This is Laravel's own recommendation.
+        Model::shouldBeStrict(! $this->app->isProduction());
 
         $this->extendRedirectResponses();
 

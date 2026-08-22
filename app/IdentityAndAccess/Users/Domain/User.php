@@ -151,7 +151,6 @@ class User extends Authenticatable implements BuildsFromAttributes, MustVerifyEm
     {
         $this->forceFill([
             'password' => Hash::make($password),
-            'password_user_defined' => true,
         ]);
 
         return $this;

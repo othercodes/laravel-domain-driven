@@ -89,11 +89,11 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
             '{{ plural }}' => $target['plural'],
             '{{ name }}' => $name,
             '{{ event }}' => $event,
-            '{{ handlerImplements }}' => $this->option('queued') ? ' implements ShouldQueue' : '',
+            '{{ handlerImplements }}' => $this->option('queued') ? ' implements ShouldQueueAfterCommit' : '',
         ]);
 
         if ($this->option('queued')) {
-            $contents = $this->withImports($contents, 'Illuminate\Contracts\Queue\ShouldQueue');
+            $contents = $this->withImports($contents, 'Illuminate\Contracts\Queue\ShouldQueueAfterCommit');
         }
 
         $written = $this->put($handler, $contents);
@@ -151,7 +151,7 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         //
         // Fully qualified and no import, like every other line this report
         // prints. This was the one place that printed a `use`, and pasting it
-        // into a handler that already imports ShouldQueue is a fatal in a
+        // into a handler that already imports ShouldQueueAfterCommit is a fatal in a
         // class the provider lists in $events.
         //
         // The name, not the clause and not the declaration it goes on.
@@ -165,7 +165,7 @@ final class MakeEventHandlerCommand extends ScaffoldCommand
         if (! $written && $this->option('queued')) {
             $this->note(
                 "[{$name}] already existed and was left as it is. If it is not queued already, add this to its implements list:",
-                ['\\Illuminate\\Contracts\\Queue\\ShouldQueue']
+                ['\\Illuminate\\Contracts\\Queue\\ShouldQueueAfterCommit']
             );
         }
 

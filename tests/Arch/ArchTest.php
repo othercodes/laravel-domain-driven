@@ -242,6 +242,37 @@ test('every service provider declares the wiring arrays the stub does', function
 |--------------------------------------------------------------------------
 */
 
+/*
+| The application layer changes an aggregate through the aggregate, not around
+| it. UpdateUserPassword and ResetUserPassword each did their own
+| forceFill(['password' => ...])->save() while User::updatePassword() sat
+| unused, which is the pattern this starter exists to fix rather than ship.
+*/
+test('the application layer does not fill an aggregate behind its own back', function () use ($appPath) {
+    $offenders = array_values(array_filter(
+        glob($appPath.'/*/*/Application/{,*/}*.php', GLOB_BRACE) ?: [],
+        fn (string $file): bool => str_contains((string) file_get_contents($file), 'forceFill(')
+    ));
+
+    expect($offenders)->toBeEmpty();
+});
+
+/*
+| A queued listener dispatched from inside DB::transaction can be picked up by
+| a worker before the commit, and this application publishes inside the
+| transaction on purpose. So a handler that queues waits for the commit.
+*/
+test('queued event handlers wait for the commit', function () use ($appPath) {
+    $offenders = array_values(array_filter(
+        glob($appPath.'/*/*/Application/EventHandlers/*.php') ?: [],
+        // The bare interface only. ShouldQueueAfterCommit extends it, so a
+        // word boundary is what tells the two apart.
+        fn (string $file): bool => preg_match('/implements[^{]*\bShouldQueue\b/', (string) file_get_contents($file)) === 1
+    ));
+
+    expect($offenders)->toBeEmpty();
+});
+
 arch('no debugging statements')
     ->expect(['dd', 'dump', 'var_dump', 'ray'])
     ->not->toBeUsed();

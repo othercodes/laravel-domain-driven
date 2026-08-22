@@ -121,7 +121,7 @@ test('a name the provider already imports is still generated and still compiles'
         ->and(php_parses($this->provider))->toBeTrue();
 });
 
-test('queued makes the handler implement ShouldQueue', function () {
+test('queued makes the handler implement ShouldQueueAfterCommit', function () {
     $this->artisan('ldd:make:event-handler', [
         'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'NotifyAccounting', '--queued' => true,
     ])->assertSuccessful();
@@ -129,8 +129,8 @@ test('queued makes the handler implement ShouldQueue', function () {
     $file = app_path('ScaffoldFixture/Widgets/Application/EventHandlers/NotifyAccounting.php');
 
     expect(File::get($file))
-        ->toContain('use Illuminate\Contracts\Queue\ShouldQueue;')
-        ->toContain('final readonly class NotifyAccounting implements ShouldQueue')
+        ->toContain('use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;')
+        ->toContain('final readonly class NotifyAccounting implements ShouldQueueAfterCommit')
         ->and(php_parses($file))->toBeTrue();
 });
 
@@ -244,8 +244,8 @@ test('the queued note never asks for an import, and never says the handler is no
 
     expect(Artisan::output())
         ->toContain('If it is not queued already')
-        ->toContain('\\Illuminate\\Contracts\\Queue\\ShouldQueue')
-        ->not->toContain('use Illuminate\\Contracts\\Queue\\ShouldQueue;')
+        ->toContain('\\Illuminate\\Contracts\\Queue\\ShouldQueueAfterCommit')
+        ->not->toContain('use Illuminate\\Contracts\\Queue\\ShouldQueueAfterCommit;')
         // Not the clause either. Beside an interface the handler already has,
         // what is needed is a comma, not a second `implements`; the name alone
         // is right whether or not there is one.

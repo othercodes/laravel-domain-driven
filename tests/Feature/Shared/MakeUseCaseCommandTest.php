@@ -10,11 +10,10 @@ use Illuminate\Support\Facades\File;
  * happened to collide would otherwise take their context with it.
  */
 beforeEach(function () {
-    $this->providers = base_path('bootstrap/providers.php');
-    $this->providersBackup = File::get($this->providers);
+    $this->providers = scaffold_into_a_copy_of_the_app();
 
-    expect(app_path('ScaffoldFixture'))->not->toBeDirectory(
-        'app/ScaffoldFixture already exists; refusing to run so the teardown cannot delete it.'
+    expect(app_path('UseCaseFixture'))->not->toBeDirectory(
+        'app/UseCaseFixture already exists; refusing to run so the teardown cannot delete it.'
     );
 
     // Set before anything can fail: a fixture half-built by a run that threw
@@ -22,29 +21,28 @@ beforeEach(function () {
     // suite then refuses at the guard above.
     $this->createdFixture = true;
 
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--events' => true])
+    $this->artisan('ldd:make:bounded-context', ['name' => 'UseCaseFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:aggregate', ['context' => 'UseCaseFixture', 'name' => 'Widget', '--events' => true])
         ->assertSuccessful();
 });
 
 afterEach(function () {
-    File::put($this->providers, $this->providersBackup);
 
     if ($this->createdFixture ?? false) {
-        File::deleteDirectory(app_path('ScaffoldFixture'));
+        File::deleteDirectory(app_path('UseCaseFixture'));
     }
 });
 
 test('it creates the use case in the aggregate application layer', function () {
     $this->artisan('ldd:make:use-case', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',
+        'context' => 'UseCaseFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',
     ])->assertSuccessful();
 
-    $file = app_path('ScaffoldFixture/Widgets/Application/FindWidget.php');
+    $file = app_path('UseCaseFixture/Widgets/Application/FindWidget.php');
 
     expect($file)->toBeFile()
         ->and(File::get($file))
-        ->toContain('namespace App\ScaffoldFixture\Widgets\Application;')
+        ->toContain('namespace App\UseCaseFixture\Widgets\Application;')
         ->toContain('final readonly class FindWidget')
         // The application layer reaches the domain through the contract, which
         // is what the architecture rules check and what keeps it testable.
@@ -54,10 +52,10 @@ test('it creates the use case in the aggregate application layer', function () {
 
 test('publishes scaffolds the transaction and the publish call', function () {
     $this->artisan('ldd:make:use-case', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'CreateWidget', '--publishes' => true,
+        'context' => 'UseCaseFixture', 'aggregate' => 'Widget', 'name' => 'CreateWidget', '--publishes' => true,
     ])->assertSuccessful();
 
-    $file = app_path('ScaffoldFixture/Widgets/Application/CreateWidget.php');
+    $file = app_path('UseCaseFixture/Widgets/Application/CreateWidget.php');
 
     // An aggregate only records its events. Without this the recorded events
     // pile up on the instance and vanish with it.
@@ -70,7 +68,7 @@ test('publishes scaffolds the transaction and the publish call', function () {
 
 test('it points at publishes when the aggregate records events', function () {
     $this->artisan('ldd:make:use-case', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',
+        'context' => 'UseCaseFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',
     ])
         ->expectsOutputToContain('Widget records domain events.')
         ->assertSuccessful();
@@ -81,7 +79,7 @@ test('it still points at publishes over a use case that already exists', functio
     // command to run, and running it over a use case already on disk reported
     // "left as it is" and said nothing, while the recorded events still went
     // nowhere. What the domain holds decides this, not what this run wrote.
-    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget'];
+    $args = ['context' => 'UseCaseFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget'];
 
     $this->artisan('ldd:make:use-case', $args)->assertSuccessful();
 
@@ -93,7 +91,7 @@ test('it still points at publishes over a use case that already exists', functio
 
 test('it says nothing about publishing when publishes was asked for', function () {
     $this->artisan('ldd:make:use-case', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'CreateWidget', '--publishes' => true,
+        'context' => 'UseCaseFixture', 'aggregate' => 'Widget', 'name' => 'CreateWidget', '--publishes' => true,
     ])
         ->doesntExpectOutputToContain('records domain events')
         ->assertSuccessful();
@@ -103,7 +101,7 @@ test('publishes over a use case that already exists still says what to do', func
     // The path ldd:make:aggregate --events sends you down. Passing the flag it
     // asks for used to leave you with less than omitting it: put() skips the
     // file, the rendered stub is discarded, and the note was behind the flag.
-    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'CreateWidget'];
+    $args = ['context' => 'UseCaseFixture', 'aggregate' => 'Widget', 'name' => 'CreateWidget'];
 
     $this->artisan('ldd:make:use-case', $args)->assertSuccessful();
 
@@ -122,7 +120,7 @@ test('the publish note names what the constructor has to gain', function () {
     $this->withoutMockingConsoleOutput();
 
     $this->artisan('ldd:make:use-case', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',
+        'context' => 'UseCaseFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',
     ]);
 
     expect(Artisan::output())
@@ -131,11 +129,11 @@ test('the publish note names what the constructor has to gain', function () {
 });
 
 test('it stays quiet when the aggregate has no events to lose', function () {
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Gadget'])
+    $this->artisan('ldd:make:aggregate', ['context' => 'UseCaseFixture', 'name' => 'Gadget'])
         ->assertSuccessful();
 
     $this->artisan('ldd:make:use-case', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Gadget', 'name' => 'FindGadget',
+        'context' => 'UseCaseFixture', 'aggregate' => 'Gadget', 'name' => 'FindGadget',
     ])
         ->doesntExpectOutputToContain('records domain events')
         ->assertSuccessful();
@@ -150,7 +148,7 @@ test('the publish idiom it prints is the one the stub writes', function () {
     $this->withoutMockingConsoleOutput();
 
     $this->artisan('ldd:make:use-case', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',
+        'context' => 'UseCaseFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget',
     ]);
 
     expect(Artisan::output())
@@ -188,10 +186,7 @@ test('it refuses an aggregate directory whose real spelling is different', funct
         ->assertFailed();
 
     expect(app_path('IdentityAndAccess/APITokens/Application/IssueToken.php'))->not->toBeFile();
-})->skip(
-    ! is_dir(dirname(__DIR__, 3).'/app/IdentityAndAccess/apitokens'),
-    'the filesystem is case-sensitive, so the name cannot collide'
-)->after(function () {
+})->after(function () {
     File::delete(app_path('IdentityAndAccess/APITokens/Application/IssueToken.php'));
 });
 
@@ -207,10 +202,10 @@ test('publishes is refused on a root that cannot publish', function () {
     // bounded context and because method_exists() autoloads: a name another
     // test has already loaded would answer from the class in memory, not from
     // the file this one just wrote.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Gizmo'])
+    $this->artisan('ldd:make:aggregate', ['context' => 'UseCaseFixture', 'name' => 'Gizmo'])
         ->assertSuccessful();
 
-    $model = app_path('ScaffoldFixture/Gizmos/Domain/Gizmo.php');
+    $model = app_path('UseCaseFixture/Gizmos/Domain/Gizmo.php');
 
     File::put($model, str_replace(
         ["use App\Shared\Domain\HasDomainEvents;\n", "    use HasDomainEvents;\n"],
@@ -223,12 +218,12 @@ test('publishes is refused on a root that cannot publish', function () {
     expect(File::get($model))->not->toContain('HasDomainEvents');
 
     $this->artisan('ldd:make:use-case', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Gizmo', 'name' => 'CreateGizmo', '--publishes' => true,
+        'context' => 'UseCaseFixture', 'aggregate' => 'Gizmo', 'name' => 'CreateGizmo', '--publishes' => true,
     ])
         ->expectsOutputToContain('cannot publish domain events')
         ->assertFailed();
 
-    expect(app_path('ScaffoldFixture/Gizmos/Application/CreateGizmo.php'))->not->toBeFile();
+    expect(app_path('UseCaseFixture/Gizmos/Application/CreateGizmo.php'))->not->toBeFile();
 });
 
 test('it refuses the plural of an aggregate that exists', function () {
@@ -238,20 +233,20 @@ test('it refuses the plural of an aggregate that exists', function () {
     // so nothing catches it until the container resolves it. The plural is the
     // natural thing to type: it is the directory name ls shows.
     $this->artisan('ldd:make:use-case', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Widgets', 'name' => 'ArchiveWidget',
+        'context' => 'UseCaseFixture', 'aggregate' => 'Widgets', 'name' => 'ArchiveWidget',
     ])
         ->expectsOutputToContain('The aggregate [Widgets] does not exist')
         ->assertFailed();
 
-    expect(app_path('ScaffoldFixture/Widgets/Application/ArchiveWidget.php'))->not->toBeFile();
+    expect(app_path('UseCaseFixture/Widgets/Application/ArchiveWidget.php'))->not->toBeFile();
 });
 
 test('it refuses an aggregate that does not exist', function () {
     $this->artisan('ldd:make:use-case', [
-        'context' => 'ScaffoldFixture', 'aggregate' => 'Nope', 'name' => 'DoThing',
+        'context' => 'UseCaseFixture', 'aggregate' => 'Nope', 'name' => 'DoThing',
     ])->assertFailed();
 
-    expect(app_path('ScaffoldFixture/Nopes'))->not->toBeDirectory();
+    expect(app_path('UseCaseFixture/Nopes'))->not->toBeDirectory();
 });
 
 test('it refuses a context that does not exist', function () {
@@ -261,7 +256,7 @@ test('it refuses a context that does not exist', function () {
 });
 
 test('it does not claim to have created a file it skipped', function () {
-    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget'];
+    $args = ['context' => 'UseCaseFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget'];
 
     $this->artisan('ldd:make:use-case', $args)->assertSuccessful();
 
@@ -274,11 +269,11 @@ test('it does not claim to have created a file it skipped', function () {
 });
 
 test('it never overwrites a use case that exists', function () {
-    $args = ['context' => 'ScaffoldFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget'];
+    $args = ['context' => 'UseCaseFixture', 'aggregate' => 'Widget', 'name' => 'FindWidget'];
 
     $this->artisan('ldd:make:use-case', $args)->assertSuccessful();
 
-    $file = app_path('ScaffoldFixture/Widgets/Application/FindWidget.php');
+    $file = app_path('UseCaseFixture/Widgets/Application/FindWidget.php');
     File::put($file, File::get($file)."\n// hand written\n");
 
     $this->artisan('ldd:make:use-case', $args)->assertSuccessful();

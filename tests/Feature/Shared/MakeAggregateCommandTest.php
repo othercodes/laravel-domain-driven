@@ -13,8 +13,7 @@ use Illuminate\Support\Str;
  * that happened to collide would otherwise take their context with it.
  */
 beforeEach(function () {
-    $this->providers = base_path('bootstrap/providers.php');
-    $this->providersBackup = File::get($this->providers);
+    $this->providers = scaffold_into_a_copy_of_the_app();
 
     foreach (['ScaffoldFixture', 'ScaffoldOther'] as $fixture) {
         expect(app_path($fixture))->not->toBeDirectory(
@@ -40,11 +39,11 @@ beforeEach(function () {
 
     // Read after the fixture context is created: ldd:make:bounded-context is
     // the one command that registers anything, and it rewrites this file.
+
     $this->providersAfterFixture = File::get($this->providers);
 });
 
 afterEach(function () {
-    File::put($this->providers, $this->providersBackup);
 
     // Both fixtures are removed here rather than in the test body: an
     // assertion that fails leaves whatever the body had not reached yet, and
@@ -635,10 +634,7 @@ test('it refuses a context whose real spelling on disk is different', function (
         ->assertFailed();
 
     expect(app_path('IdentityAndAccess/Probes'))->not->toBeDirectory();
-})->skip(
-    ! is_dir(dirname(__DIR__, 3).'/app/identityandaccess'),
-    'the filesystem is case-sensitive, so the name cannot collide'
-);
+});
 
 test('it refuses to put a second aggregate root in one directory', function () {
     // Str::plural leaves a plural alone, so this resolves to the Widgets
@@ -664,10 +660,7 @@ test('a mis-cased aggregate is told the spelling, not blamed for a table collisi
     ])
         ->expectsOutputToContain('The aggregate directory on disk is [APITokens]')
         ->assertFailed();
-})->skip(
-    ! is_dir(dirname(__DIR__, 3).'/app/IdentityAndAccess/apitokens'),
-    'the filesystem is case-sensitive, so the name cannot collide'
-);
+});
 
 test('it refuses a table database/migrations already creates', function () {
     // migrate always merges database_path('migrations') with whatever the

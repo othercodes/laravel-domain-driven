@@ -26,15 +26,13 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-
     // Removed here rather than in the test body: an assertion that fails
     // leaves whatever the body had not reached yet, and a leaked context
     // makes every later run of the suite fail too.
-    if ($this->createdFixture ?? false) {
-        File::deleteDirectory(app_path('ContextFixture'));
-        File::deleteDirectory(app_path('NestedContextFixture'));
-        File::deleteDirectory(app_path('BoundedContext'));
-    }
+
+    // The whole copy, which is where every fixture this file makes now
+    // lives. Left behind, /tmp collected one per worker per run.
+    File::deleteDirectory(dirname($this->providers));
 });
 
 test('it scaffolds the context and registers its provider', function () {

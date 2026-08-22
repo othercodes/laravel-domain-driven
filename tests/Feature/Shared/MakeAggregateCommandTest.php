@@ -44,14 +44,11 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-
     // Both fixtures are removed here rather than in the test body: an
     // assertion that fails leaves whatever the body had not reached yet, and
     // a leaked context makes every later run of the suite fail too.
     if ($this->createdFixture ?? false) {
         File::deleteDirectory($this->pages);
-        File::deleteDirectory(app_path('ScaffoldFixture'));
-        File::deleteDirectory(app_path('ScaffoldOther'));
     }
 
     // The mis-cased context test writes nothing while the guard holds, but the
@@ -60,6 +57,10 @@ afterEach(function () {
     // run of the suite fails on the leftovers. Removed by the path the command
     // would have used, and only ever this one name.
     File::deleteDirectory(app_path('IdentityAndAccess/Probes'));
+
+    // The whole copy, which is where every fixture this file makes now
+    // lives. Left behind, /tmp collected one per worker per run.
+    File::deleteDirectory(dirname($this->providers));
 });
 
 test('it generates only the core by default', function () {

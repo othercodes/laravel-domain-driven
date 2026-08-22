@@ -27,10 +27,9 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-
-    if ($this->createdFixture ?? false) {
-        File::deleteDirectory(app_path('UseCaseFixture'));
-    }
+    // The whole copy, which is where every fixture this file makes now
+    // lives. Left behind, /tmp collected one per worker per run.
+    File::deleteDirectory(dirname($this->providers));
 });
 
 test('it creates the use case in the aggregate application layer', function () {

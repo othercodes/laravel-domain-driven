@@ -103,7 +103,13 @@ function scaffold_into_a_copy_of_the_app(): string
 
     /** @var ClassLoader $loader */
     $loader = require base_path('vendor/autoload.php');
-    $loader->addPsr4('App\\', $root.'/app');
+
+    // Once per process. The path is the same every time, and addPsr4 appends
+    // without looking, so calling it per test left the App\ prefix holding one
+    // duplicate entry per test for every class lookup to walk.
+    if (! in_array($root.'/app', $loader->getPrefixesPsr4()['App\\'] ?? [], true)) {
+        $loader->addPsr4('App\\', $root.'/app');
+    }
 
     return $providers;
 }

@@ -185,21 +185,25 @@ abstract class ScaffoldCommand extends Command
             return null;
         }
 
+        if (($onDisk = $this->misspelling($context)) !== null) {
+            $this->components->error("The bounded context on disk is [{$onDisk}], not [{$context}].");
+            $this->components->bulletList([
+                "Run it again as: {$onDisk}",
+            ]);
+
+            return null;
+        }
+
+        // Before the existence check, so it fires whatever the filesystem
+        // does about case: on a case-sensitive one the check below would
+        // otherwise say the context does not exist and invite creating a
+        // near-duplicate beside the real one.
         // A directory alone is not a context: it also has to have a provider
         // named after it, which is the file the report tells you to edit.
         if (! $this->files->exists(app_path("{$context}/{$context}ServiceProvider.php"))) {
             $this->components->error("The bounded context [{$context}] does not exist.");
             $this->components->bulletList([
                 "Create it with: php artisan ldd:make:bounded-context {$context}",
-            ]);
-
-            return null;
-        }
-
-        if (($onDisk = $this->misspelling($context)) !== null) {
-            $this->components->error("The bounded context on disk is [{$onDisk}], not [{$context}].");
-            $this->components->bulletList([
-                "Run it again as: {$onDisk}",
             ]);
 
             return null;

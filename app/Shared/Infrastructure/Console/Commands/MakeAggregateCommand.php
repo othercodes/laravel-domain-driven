@@ -90,6 +90,15 @@ final class MakeAggregateCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
+        if (($onDisk = $this->misspelling($this->context)) !== null) {
+            $this->components->error("The bounded context on disk is [{$onDisk}], not [{$this->context}].");
+            $this->components->bulletList([
+                "Run it again as: {$onDisk}",
+            ]);
+
+            return self::FAILURE;
+        }
+
         // An aggregate needs a context the way a handler needs an aggregate.
         // Creating one from here would be generating upwards, and the context
         // is also the one thing this command never touches again: it only
@@ -98,15 +107,6 @@ final class MakeAggregateCommand extends ScaffoldCommand
             $this->components->error("The bounded context [{$this->context}] does not exist.");
             $this->components->bulletList([
                 "Create it with: php artisan ldd:make:bounded-context {$this->context}",
-            ]);
-
-            return self::FAILURE;
-        }
-
-        if (($onDisk = $this->misspelling($this->context)) !== null) {
-            $this->components->error("The bounded context on disk is [{$onDisk}], not [{$this->context}].");
-            $this->components->bulletList([
-                "Run it again as: {$onDisk}",
             ]);
 
             return self::FAILURE;

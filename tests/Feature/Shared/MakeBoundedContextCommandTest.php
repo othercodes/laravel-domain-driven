@@ -11,13 +11,12 @@ use Illuminate\Support\Facades\File;
  * name that happened to collide would otherwise be destroyed.
  */
 beforeEach(function () {
-    $this->providers = base_path('bootstrap/providers.php');
-    $this->providersBackup = File::get($this->providers);
+    $this->providers = scaffold_into_a_copy_of_the_app();
 
     // BoundedContext is only ever created if the guard on that name stops
     // working, and a leaked context joins $contexts in the arch suite, so it is
     // guarded and torn down like the two this file means to create.
-    foreach (['ScaffoldFixture', 'NestedScaffoldFixture', 'BoundedContext'] as $fixture) {
+    foreach (['ContextFixture', 'NestedContextFixture', 'BoundedContext'] as $fixture) {
         expect(app_path($fixture))->not->toBeDirectory(
             "app/{$fixture} already exists; refusing to run so the teardown cannot delete it."
         );
@@ -27,29 +26,26 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    File::put($this->providers, $this->providersBackup);
-
     // Removed here rather than in the test body: an assertion that fails
     // leaves whatever the body had not reached yet, and a leaked context
     // makes every later run of the suite fail too.
-    if ($this->createdFixture ?? false) {
-        File::deleteDirectory(app_path('ScaffoldFixture'));
-        File::deleteDirectory(app_path('NestedScaffoldFixture'));
-        File::deleteDirectory(app_path('BoundedContext'));
-    }
+
+    // The whole copy, which is where every fixture this file makes now
+    // lives. Left behind, /tmp collected one per worker per run.
+    File::deleteDirectory(dirname($this->providers));
 });
 
 test('it scaffolds the context and registers its provider', function () {
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])
         ->assertSuccessful();
 
-    expect(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php'))->toBeFile();
+    expect(app_path('ContextFixture/ContextFixtureServiceProvider.php'))->toBeFile();
 
     // Registered through Laravel's own helper, the one make:provider uses.
     // It writes every entry fully qualified with no import, which is why this
     // is the one place these commands still edit a file they did not create.
     expect(File::get($this->providers))
-        ->toContain('App\ScaffoldFixture\ScaffoldFixtureServiceProvider::class,')
+        ->toContain('App\ContextFixture\ContextFixtureServiceProvider::class,')
         ->and(php_parses($this->providers))->toBeTrue();
 });
 
@@ -112,29 +108,24 @@ test('it refuses a context whose real spelling on disk is different', function (
         ->assertFailed();
 
     expect(File::get($this->providers))->not->toContain('Identityandaccess');
-})->skip(
-    // Evaluated at collection time, before the application boots, so no
-    // base_path() here. A case-sensitive filesystem cannot reach this state.
-    ! is_dir(dirname(__DIR__, 3).'/app/identityandaccess'),
-    'the filesystem is case-sensitive, so the name cannot collide'
-);
+});
 
 test('it creates no layer directories', function () {
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])->assertSuccessful();
 
-    expect(app_path('ScaffoldFixture/Domain'))->not->toBeDirectory()
-        ->and(app_path('ScaffoldFixture/Application'))->not->toBeDirectory()
-        ->and(app_path('ScaffoldFixture/Infrastructure'))->not->toBeDirectory();
+    expect(app_path('ContextFixture/Domain'))->not->toBeDirectory()
+        ->and(app_path('ContextFixture/Application'))->not->toBeDirectory()
+        ->and(app_path('ContextFixture/Infrastructure'))->not->toBeDirectory();
 });
 
 test('route files are opt in', function () {
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])->assertSuccessful();
 
-    expect(app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes/web.php'))->not->toBeFile();
+    expect(app_path('ContextFixture/Shared/Infrastructure/Http/Routes/web.php'))->not->toBeFile();
 
     // The convention is documented as a comment, never as a live property
     // pointing at a file that does not exist.
-    expect(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')))
+    expect(File::get(app_path('ContextFixture/ContextFixtureServiceProvider.php')))
         ->toContain('// protected array $routes')
         ->not->toMatch('/^\s+protected array \$routes/m');
 });
@@ -143,22 +134,22 @@ test('it declares the route files it generates', function () {
     // A context comes out fully wired, which is what earns every later
     // command the right to wire nothing: the provider is written in the same
     // run, from the same options, so it already declares them.
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true, '--api' => true])
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture', '--web' => true, '--api' => true])
         ->doesntExpectOutputToContain('Register the route files')
         ->assertSuccessful();
 
-    expect(app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes/web.php'))->toBeFile()
-        ->and(app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes/api.php'))->toBeFile();
+    expect(app_path('ContextFixture/Shared/Infrastructure/Http/Routes/web.php'))->toBeFile()
+        ->and(app_path('ContextFixture/Shared/Infrastructure/Http/Routes/api.php'))->toBeFile();
 
-    expect(File::get(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php')))
+    expect(File::get(app_path('ContextFixture/ContextFixtureServiceProvider.php')))
         ->toContain("'web' => [__DIR__.'/Shared/Infrastructure/Http/Routes/web.php']")
         ->toContain("'api' => [__DIR__.'/Shared/Infrastructure/Http/Routes/api.php']");
 });
 
 test('re-running never rewrites the provider', function () {
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])->assertSuccessful();
 
-    $provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
+    $provider = app_path('ContextFixture/ContextFixtureServiceProvider.php');
 
     File::put($provider, str_replace(
         'public array $bindings = [];',
@@ -171,24 +162,24 @@ test('re-running never rewrites the provider', function () {
     // Asking for route files on a context already in use is the natural way
     // to run this twice; rewriting the provider from the stub would drop
     // every binding and migration path it has accumulated.
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true])
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture', '--web' => true])
         ->assertSuccessful();
 
     expect(File::get($provider))->toBe($before);
 });
 
 test('re-running creates the missing route file and says how to declare it', function () {
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])->assertSuccessful();
 
     // The file alone is never loaded: the provider has to declare it, and
     // the provider written by an earlier run is one this run will not touch.
     // The only symptom of getting this wrong is a 404.
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true])
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture', '--web' => true])
         ->expectsOutputToContain('in $routes')
         ->expectsOutputToContain("'web' => [__DIR__.'/Shared/Infrastructure/Http/Routes/web.php'],")
         ->assertSuccessful();
 
-    expect(app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes/web.php'))->toBeFile();
+    expect(app_path('ContextFixture/Shared/Infrastructure/Http/Routes/web.php'))->toBeFile();
 });
 
 test('it asks for the $routes entry even when it wrote nothing at all', function () {
@@ -199,13 +190,13 @@ test('it asks for the $routes entry even when it wrote nothing at all', function
     // stub ships instructs, and then running this to have the tool sort it
     // out. Undeclared, bootRoutes() never loads it and every route in it 404s,
     // over a run that printed green.
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])->assertSuccessful();
 
-    $file = app_path('ScaffoldFixture/Shared/Infrastructure/Http/Routes/web.php');
+    $file = app_path('ContextFixture/Shared/Infrastructure/Http/Routes/web.php');
     File::ensureDirectoryExists(dirname($file));
     File::put($file, "<?php\n");
 
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true])
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture', '--web' => true])
         ->expectsOutputToContain('exists, skipped')
         ->expectsOutputToContain('in $routes')
         ->expectsOutputToContain("'web' => [__DIR__.'/Shared/Infrastructure/Http/Routes/web.php'],")
@@ -218,59 +209,64 @@ test('it asks for the $routes entry even when it wrote nothing at all', function
 });
 
 test('it says nothing about routes when no route file was asked for', function () {
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])->assertSuccessful();
 
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])
         ->expectsOutputToContain('exists, skipped')
         ->doesntExpectOutputToContain('in $routes')
         ->assertSuccessful();
 });
 
 test('it normalises the context name', function () {
-    $this->artisan('ldd:make:bounded-context', ['name' => 'scaffold_fixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'context_fixture'])->assertSuccessful();
 
-    expect(app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php'))->toBeFile();
+    expect(app_path('ContextFixture/ContextFixtureServiceProvider.php'))->toBeFile();
 });
 
 test('it registers the provider however the list is written', function () {
     File::put($this->providers, "<?php\n\nreturn [App\Shared\SharedServiceProvider::class];\n");
 
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])->assertSuccessful();
 
-    expect(File::get($this->providers))->toContain('ScaffoldFixtureServiceProvider::class,')
+    expect(File::get($this->providers))->toContain('ContextFixtureServiceProvider::class,')
         ->and(php_parses($this->providers))->toBeTrue();
 });
 
 test('it fails loudly when there is no provider list to register in', function () {
+    // The one test that removes the file rather than adding to it, so it is
+    // also the one that keeps a copy: everything else in the suite boots
+    // through it, and the teardown only ever takes entries out.
+    $original = File::get($this->providers);
+
     File::delete($this->providers);
 
-    // Reporting success here leaves a context whose bindings, migrations and
-    // routes are never loaded.
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])
-        ->expectsOutputToContain('by hand')
-        ->assertFailed();
-})->after(function () {
-    // Restored here as well: the afterEach above writes the backup, but a
-    // deleted file has to exist again before anything else in the suite boots.
-    File::put(base_path('bootstrap/providers.php'), test()->providersBackup);
+    try {
+        // Reporting success here leaves a context whose bindings, migrations
+        // and routes are never loaded.
+        $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])
+            ->expectsOutputToContain('by hand')
+            ->assertFailed();
+    } finally {
+        File::put($this->providers, $original);
+    }
 });
 
 test('a context is not mistaken for one whose name ends with it', function () {
-    $this->artisan('ldd:make:bounded-context', ['name' => 'NestedScaffoldFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'NestedContextFixture'])->assertSuccessful();
 
-    // NestedScaffoldFixtureServiceProvider::class contains
-    // ScaffoldFixtureServiceProvider::class, so a substring check would call
+    // NestedContextFixtureServiceProvider::class contains
+    // ContextFixtureServiceProvider::class, so a substring check would call
     // this one already registered and never add it.
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])->assertSuccessful();
 
     expect(File::get($this->providers))
-        ->toContain('App\ScaffoldFixture\ScaffoldFixtureServiceProvider::class,')
+        ->toContain('App\ContextFixture\ContextFixtureServiceProvider::class,')
         ->and(php_parses($this->providers))->toBeTrue();
 });
 
 test('registering an already known provider does not duplicate it', function () {
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ContextFixture'])->assertSuccessful();
 
-    expect(substr_count(File::get($this->providers), 'ScaffoldFixtureServiceProvider::class'))->toBe(1);
+    expect(substr_count(File::get($this->providers), 'ContextFixtureServiceProvider::class'))->toBe(1);
 });

@@ -161,6 +161,37 @@ foreach ($boundedContexts as $context) {
     }
 }
 
+/*
+ * The same layering rule, for the one context the patterns above structurally
+ * cannot reach. Every rule so far matches App\<Context>\<Aggregate>\<Layer>,
+ * three segments, because a bounded context keeps its layers inside each
+ * aggregate. Shared has no aggregates, so its layers sit two segments in and
+ * no pattern ever saw them: a Domain file there could import Infrastructure
+ * and the suite stayed green, while the comment at the top of this file says
+ * the rule has no exceptions.
+ *
+ * app/Shared is the foundation every context builds on, so it is the last
+ * place that should get to skip it.
+ *
+ * Emitted only for the layers that exist, like the loop above: Pest throws on
+ * a pattern that matches nothing, and Shared has no Application layer today.
+ */
+foreach (['Application', 'Infrastructure'] as $outer) {
+    if (! is_dir($appPath.'/Shared/Domain') || ! is_dir($appPath.'/Shared/'.$outer)) {
+        continue;
+    }
+
+    arch('shared domain does not depend on '.strtolower($outer))
+        ->expect('App\Shared\Domain')
+        ->not->toUse('App\Shared\\'.$outer);
+}
+
+if (is_dir($appPath.'/Shared/Application') && is_dir($appPath.'/Shared/Infrastructure')) {
+    arch('shared application does not depend on infrastructure')
+        ->expect('App\Shared\Application')
+        ->not->toUse('App\Shared\Infrastructure');
+}
+
 arch('shared context does not depend on any bounded context')
     ->expect('App\Shared')
     ->not->toUse(array_map(fn (string $c): string => 'App\\'.$c, $boundedContexts));

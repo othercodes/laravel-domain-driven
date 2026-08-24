@@ -1,6 +1,7 @@
 ---
 paths:
   - app/*/*/Application/**
+  - app/Shared/Application/**
 ---
 
 # Application layer

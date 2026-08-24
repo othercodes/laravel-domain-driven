@@ -1,6 +1,9 @@
 ---
 paths:
   - app/*/*/Domain/**
+  # Shared keeps its layers one level up: a bounded context nests them
+  # inside each aggregate, and Shared has no aggregates.
+  - app/Shared/Domain/**
 ---
 
 # Domain layer

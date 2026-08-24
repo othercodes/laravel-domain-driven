@@ -281,7 +281,14 @@ test('every service provider declares the wiring arrays the stub does', function
 */
 test('the application layer does not fill an aggregate behind its own back', function () use ($appPath) {
     $offenders = array_values(array_filter(
-        glob($appPath.'/*/*/Application/{,*/}*.php', GLOB_BRACE) ?: [],
+        // Both depths, like the layering rules above: a bounded context nests
+        // its layers inside each aggregate, and Shared has none, so
+        // app/Shared/Application would otherwise be exempt the way its Domain
+        // was before #98.
+        array_merge(
+            glob($appPath.'/*/*/Application/{,*/}*.php', GLOB_BRACE) ?: [],
+            glob($appPath.'/Shared/Application/{,*/}*.php', GLOB_BRACE) ?: [],
+        ),
         fn (string $file): bool => str_contains((string) file_get_contents($file), 'forceFill(')
     ));
 

@@ -84,6 +84,20 @@ const maxWidthClass = computed(() => {
                 </div>
             </transition>
 
+            <!--
+                `relative` is load bearing, and only under Tailwind 4. The
+                overlay above is `fixed`, so it paints in the positioned layer;
+                this box paints below it unless it is positioned too, and the
+                whole dialog renders behind its own dim.
+
+                Tailwind 3 hid that: `transform` emitted a real matrix, which
+                gave this box a stacking context for free. In 4 it compiles to
+                `transform: var(--tw-rotate-x,) var(--tw-rotate-y,) ...`, every
+                variable unset, so the declaration is invalid and dropped and
+                the element is left with `transform: none`.
+
+                Upstream Jetstream still ships it without `relative`.
+            -->
             <transition
                 enter-active-class="ease-out duration-300"
                 enter-from-class="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
@@ -92,7 +106,7 @@ const maxWidthClass = computed(() => {
                 leave-from-class="opacity-100 translate-y-0 sm:scale-100"
                 leave-to-class="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
             >
-                <div v-show="show" class="mb-6 bg-white rounded-lg overflow-hidden shadow-xl transform transition-all sm:w-full sm:mx-auto" :class="maxWidthClass">
+                <div v-show="show" class="relative mb-6 bg-white rounded-lg overflow-hidden shadow-xl transform transition-all sm:w-full sm:mx-auto" :class="maxWidthClass">
                     <slot v-if="showSlot"/>
                 </div>
             </transition>

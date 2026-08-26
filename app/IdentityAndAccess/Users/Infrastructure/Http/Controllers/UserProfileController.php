@@ -38,7 +38,7 @@ class UserProfileController extends InertiaController
         }
 
         return collect(
-            DB::connection(config('session.connection'))->table(config('session.table', 'sessions'))
+            DB::connection(config('session.connection'))->table(config('session.table', 'iaa_sessions'))
                 ->where('user_id', $request->user()->getAuthIdentifier())
                 ->orderBy('last_activity', 'desc')
                 ->get()

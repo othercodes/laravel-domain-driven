@@ -28,6 +28,9 @@ use Laravel\Sanctum\Sanctum;
  */
 class IdentityAndAccessServiceProvider extends BoundedContextServiceProvider
 {
+    /** The code every table this context owns starts with: iaa_<table>. */
+    public string $tablePrefix = 'iaa';
+
     public array $bindings = [
         UserRepository::class => EloquentUserRepository::class,
     ];

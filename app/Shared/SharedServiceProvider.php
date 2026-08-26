@@ -26,6 +26,9 @@ use Laravel\Fortify\Events\PasswordUpdatedViaController;
  */
 class SharedServiceProvider extends BoundedContextServiceProvider
 {
+    /** The code every table this context owns starts with: shd_<table>. */
+    public string $tablePrefix = 'shd';
+
     public array $bindings = [
         EventBus::class => IlluminateEventBus::class,
     ];

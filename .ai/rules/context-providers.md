@@ -16,6 +16,21 @@ A context created without `--web` or `--api` carries `$routes` as a commented
 example. Replace that comment with a real property rather than uncommenting it:
 the example names a `web.php` the run may not have created.
 
+## The context stamps its code on its tables
+
+`public string $tablePrefix` is the short code every table this context owns
+starts with. `ldd:make:aggregate` reads it by reflection when it names a table,
+so an aggregate lands on `<prefix>_<plural>` without anyone asking.
+
+It is asked for when the context is created, two or three lowercase letters,
+and never derived: which abbreviation reads back to a context is a judgement.
+Initials usually, `IdentityAndAccess` to `iaa`, a contraction where the name is
+one word, `Shared` to `shd`, and sometimes neither, where a context is known in
+the business by another name. Somebody reading `trn_exercises` in a database
+client has to be able to name the context without asking.
+
+A test walks the schema and holds that every table carries a declared code.
+
 ## This is where the generator reports land
 
 `ldd:make:aggregate` and `ldd:make:event-handler` print entries for these arrays

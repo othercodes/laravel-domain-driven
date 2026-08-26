@@ -34,7 +34,7 @@ beforeEach(function () {
     // suite then refuses at the guard above.
     $this->createdFixture = true;
 
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', 'prefix' => 'sf'])->assertSuccessful();
     $this->provider = app_path('ScaffoldFixture/ScaffoldFixtureServiceProvider.php');
 
     // Read after the fixture context is created: ldd:make:bounded-context is
@@ -249,11 +249,11 @@ test('it says how to create the route file the hint points at', function () {
 
     expect(Artisan::output())
         ->toContain('That file does not exist yet')
-        ->toContain('ldd:make:bounded-context ScaffoldFixture --web');
+        ->toContain('ldd:make:bounded-context ScaffoldFixture <prefix> --web');
 });
 
 test('it says nothing about creating a route file that is already there', function () {
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldFixture', 'prefix' => 'sf', '--web' => true])->assertSuccessful();
 
     $this->withoutMockingConsoleOutput();
 
@@ -325,7 +325,7 @@ test('it says what a model it did not write still needs, naming every class in f
         ->not->toContain('implements \App\Shared\Domain\BuildsFromAttributes,')
         // The model keeps pointing at whatever table it declares, so a
         // migration for another one creates a table nothing reads.
-        ->toContain("protected \$table = 'widgets';");
+        ->toContain("protected \$table = 'sf_widgets';");
 });
 
 test('it says nothing about a model it wrote in this run', function () {
@@ -585,7 +585,10 @@ test('it says a table another context owns is shared, even with no migration ask
     // aggregate silently shared a table another context owns.
     $this->withoutMockingConsoleOutput();
 
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Job']);
+    // --table, because the prefixes now keep them apart on their own: this
+    // aggregate would land on sf_jobs and Shared owns shd_jobs. What is under
+    // test is the guard, and reaching it means asking for the collision.
+    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Job', '--table' => 'shd_jobs']);
 
     expect(Artisan::output())
         ->toContain('already has a create migration')
@@ -668,7 +671,7 @@ test('it refuses a table database/migrations already creates', function () {
     // providers register, so a table Laravel's own make:migration created
     // there collides just as hard, and the guard never looked.
     $dir = database_path('migrations');
-    $file = "{$dir}/2026_01_01_000000_create_widgets_table.php";
+    $file = "{$dir}/2026_01_01_000000_create_sf_widgets_table.php";
 
     File::ensureDirectoryExists($dir);
     File::put($file, "<?php\n");
@@ -711,10 +714,14 @@ test('it refuses a table another context already creates', function () {
     $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Widget', '--migration' => true])
         ->assertSuccessful();
 
-    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldOther'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'ScaffoldOther', 'prefix' => 'so'])->assertSuccessful();
 
-    // Both would Schema::create('widgets') and abort migrate on a fresh database.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldOther', 'name' => 'Widget', '--migration' => true])
+    // Both are asked for the same table, because by default they no longer
+    // want one: sf_widgets and so_widgets. Two create migrations for one table
+    // abort migrate on a fresh database however the name was arrived at.
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldOther', 'name' => 'Widget', '--migration' => true, '--table' => 'sf_widgets',
+    ])
         ->expectsOutputToContain('already has a create migration')
         ->assertFailed();
 
@@ -726,7 +733,7 @@ test('it refuses a table another context already creates', function () {
 test('it refuses a table Shared already creates a migration for', function () {
     // Aggregates keep their migrations two segments into app/, and Shared
     // keeps the framework's own one segment in. Scanning only the first meant
-    // an aggregate called Job put a second create_jobs_table beside Shared's,
+    // an aggregate called Job put a second create_shd_jobs_table beside Shared's,
     // and two create migrations for one table abort migrate on a fresh
     // database.
     //
@@ -734,7 +741,9 @@ test('it refuses a table Shared already creates a migration for', function () {
     // migration this application generates follows. A hand-written migration
     // creating a table its filename does not name is not covered, and that
     // failure is loud: migrate stops and says which table it is.
-    $this->artisan('ldd:make:aggregate', ['context' => 'ScaffoldFixture', 'name' => 'Job', '--migration' => true])
+    $this->artisan('ldd:make:aggregate', [
+        'context' => 'ScaffoldFixture', 'name' => 'Job', '--migration' => true, '--table' => 'shd_jobs',
+    ])
         ->expectsOutputToContain('app/Shared/Infrastructure/Persistence/Migrations')
         ->assertFailed();
 
@@ -746,7 +755,7 @@ test('it reuses the migration filename instead of duplicating it', function () {
 
     $this->artisan('ldd:make:aggregate', $args)->assertSuccessful();
 
-    $migration = File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*_create_widgets_table.php'))[0];
+    $migration = File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*_create_sf_widgets_table.php'))[0];
     File::put($migration, str_replace(
         '$table->timestamps();',
         "\$table->string('reference')->unique();\n            \$table->timestamps();",
@@ -765,7 +774,7 @@ test('it reuses the migration filename instead of duplicating it', function () {
     // Two create-table migrations would abort `migrate` on a fresh database,
     // and rewriting the one that is there loses schema that may already have
     // been applied: Laravel records it as run by filename, so it never replays.
-    expect(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*_create_widgets_table.php')))
+    expect(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*_create_sf_widgets_table.php')))
         ->toHaveCount(1)
         ->and(File::get($migration))->toContain("\$table->string('reference')->unique();");
 });
@@ -834,8 +843,8 @@ test('a realistic sequence of runs leaves a tree that compiles and files nobody 
         ['ldd:make:event-handler', $agg + ['name' => 'NotifyAccounting', '--queued' => true]],
         // And the context itself, gaining route files after everything else
         // exists, which is the path ldd:make:aggregate --web prints.
-        ['ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--web' => true]],
-        ['ldd:make:bounded-context', ['name' => 'ScaffoldFixture', '--api' => true]],
+        ['ldd:make:bounded-context', ['name' => 'ScaffoldFixture', 'prefix' => 'sf', '--web' => true]],
+        ['ldd:make:bounded-context', ['name' => 'ScaffoldFixture', 'prefix' => 'sf', '--api' => true]],
     ];
 
     foreach ($runs as [$command, $arguments]) {
@@ -902,7 +911,7 @@ test('all generates every optional piece', function () {
         ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Requests/StoreWidgetRequest.php'))->toBeFile()
         ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Controllers/WidgetController.php'))->toBeFile()
         ->and(app_path('ScaffoldFixture/Widgets/Infrastructure/Http/Controllers/API/WidgetController.php'))->toBeFile()
-        ->and(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*_create_widgets_table.php')))
+        ->and(File::glob(app_path('ScaffoldFixture/Widgets/Infrastructure/Persistence/Migrations/*_create_sf_widgets_table.php')))
         ->toHaveCount(1);
 });
 

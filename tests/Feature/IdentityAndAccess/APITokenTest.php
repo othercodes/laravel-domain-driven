@@ -10,7 +10,7 @@ test('sanctum issues tokens through the APIToken model', function () {
     $token = $user->createToken('test-token')->accessToken;
 
     expect($token)->toBeInstanceOf(APIToken::class)
-        ->and($token->getTable())->toBe('api_tokens')
+        ->and($token->getTable())->toBe('iaa_api_tokens')
         ->and($token->tokenable_id)->toBe($user->id);
 });
 

@@ -203,7 +203,7 @@ abstract class ScaffoldCommand extends Command
         if (! $this->files->exists(app_path("{$context}/{$context}ServiceProvider.php"))) {
             $this->components->error("The bounded context [{$context}] does not exist.");
             $this->components->bulletList([
-                "Create it with: php artisan ldd:make:bounded-context {$context}",
+                "Create it with: php artisan ldd:make:bounded-context {$context} <prefix>",
             ]);
 
             return null;

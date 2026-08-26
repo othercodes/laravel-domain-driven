@@ -26,5 +26,5 @@ use Laravel\Sanctum\PersonalAccessToken;
  */
 class APIToken extends PersonalAccessToken
 {
-    protected $table = 'api_tokens';
+    protected $table = 'iaa_api_tokens';
 }

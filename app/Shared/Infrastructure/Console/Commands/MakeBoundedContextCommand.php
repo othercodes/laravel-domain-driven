@@ -26,6 +26,7 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
 {
     protected $signature = 'ldd:make:bounded-context
         {name : The bounded context name, e.g. VisaManagement}
+        {prefix : The code its tables carry, two or three letters, e.g. iaa}
         {--web : Add a web routes file}
         {--api : Add an api routes file}';
 
@@ -89,6 +90,24 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
             return self::FAILURE;
         }
 
+        // After the three guards on the name, not before them: a context that
+        // cannot exist has no prefix worth checking, and answering about the
+        // prefix first sends somebody off to fix that and come back for the
+        // real refusal.
+        //
+        // Asked for, never derived. Which abbreviation reads back to a context
+        // is a judgement, IdentityAndAccess to iaa and CompanyRegistry to cse,
+        // and a rule that gets one name right gets the next one wrong. Two
+        // contexts picking the same code is the developer's business, the way
+        // two models pointing at one table are.
+        $prefix = (string) $this->argument('prefix');
+
+        if (preg_match('/^[a-z]{2,3}$/', $prefix) !== 1) {
+            $this->components->error("The table prefix must be two or three lowercase letters, [{$prefix}] is not.");
+
+            return self::FAILURE;
+        }
+
         $path = app_path($context);
         $provider = $path."/{$context}ServiceProvider.php";
 
@@ -98,6 +117,7 @@ final class MakeBoundedContextCommand extends ScaffoldCommand
         // path while the aggregates stayed on disk.
         $providerWritten = $this->put($provider, $this->stub('bounded-context.provider', [
             '{{ context }}' => $context,
+            '{{ prefix }}' => $prefix,
             '{{ routes }}' => $this->routesProperty($context),
         ]));
 

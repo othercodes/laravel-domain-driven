@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Shared\Infrastructure\Console\Commands;
 
 use Illuminate\Support\Str;
+use ReflectionClass;
 
 /**
  * Class MakeAggregateCommand
@@ -72,7 +73,11 @@ final class MakeAggregateCommand extends ScaffoldCommand
         $this->aggregate = $aggregate;
         $this->plural = Str::plural($this->aggregate);
         $this->variable = Str::camel($this->aggregate);
-        $this->table = (string) ($this->option('table') ?: Str::snake($this->plural));
+        // Prefixed with the context's own code, read from its provider, so an
+        // aggregate lands on a table that says who owns it without anybody
+        // passing a flag. --table still wins: an aggregate mapped onto a table
+        // another context already owns is the case that needs the escape hatch.
+        $this->table = (string) ($this->option('table') ?: $this->prefixed(Str::snake($this->plural)));
 
         // The table name is interpolated into the model's $table property and
         // into Schema::create(), so a quote or a space in it produces two
@@ -106,7 +111,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         if (! $this->files->exists(app_path("{$this->context}/{$this->context}ServiceProvider.php"))) {
             $this->components->error("The bounded context [{$this->context}] does not exist.");
             $this->components->bulletList([
-                "Create it with: php artisan ldd:make:bounded-context {$this->context}",
+                "Create it with: php artisan ldd:make:bounded-context {$this->context} <prefix>",
             ]);
 
             return self::FAILURE;
@@ -424,7 +429,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
             // symptom is a 404.
             if (! $this->files->exists($file)) {
                 $lines[] = '';
-                $lines[] = "// That file does not exist yet. Create it with: php artisan ldd:make:bounded-context {$this->context} --{$kind}";
+                $lines[] = "// That file does not exist yet. Create it with: php artisan ldd:make:bounded-context {$this->context} <prefix> --{$kind}";
             }
 
             // Outside that branch. A route file that exists and is not
@@ -459,6 +464,33 @@ final class MakeAggregateCommand extends ScaffoldCommand
      * table name is global: two create migrations for the same table abort
      * `migrate` on a fresh database. Returns the context that already owns it.
      */
+    /**
+     * Stamp the context's code on a table name.
+     *
+     * Read off the provider class rather than from config, because that is
+     * where the rest of a context's wiring already lives, and by reflection
+     * rather than by resolving it, because what is wanted is the declared
+     * default and not a booted provider.
+     *
+     * A context whose provider predates the property gets no prefix rather
+     * than a guess: its existing tables are unprefixed too, and inventing one
+     * here would split a context across two naming schemes.
+     */
+    private function prefixed(string $table): string
+    {
+        $provider = "App\\{$this->context}\\{$this->context}ServiceProvider";
+
+        if (! class_exists($provider)) {
+            return $table;
+        }
+
+        $prefix = (new ReflectionClass($provider))->getDefaultProperties()['tablePrefix'] ?? '';
+
+        return is_string($prefix) && $prefix !== ''
+            ? "{$prefix}_{$table}"
+            : $table;
+    }
+
     private function tableOwnedElsewhere(): ?string
     {
         $mine = app_path("{$this->context}/{$this->plural}/Infrastructure/Persistence/Migrations");
@@ -466,7 +498,7 @@ final class MakeAggregateCommand extends ScaffoldCommand
         // Both depths. Aggregates keep their migrations two segments in, and
         // Shared keeps the framework's own one segment in: cache, jobs,
         // failed_jobs, job_batches. Scanning only the first meant an aggregate
-        // called Job passed the guard and put a second create_jobs_table
+        // called Job passed the guard and put a second create_shd_jobs_table
         // beside Shared's, which is exactly what this exists to stop.
         // database/migrations too: BaseCommand::getMigrationPaths() always
         // merges it with whatever the providers register, so a table created

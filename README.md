@@ -141,14 +141,14 @@ Creating a bounded context by hand means a directory, a service provider and an 
 There is a command for that:
 
 ```bash
-./vendor/bin/sail artisan ldd:make:bounded-context Billing
+./vendor/bin/sail artisan ldd:make:bounded-context Billing bil
 ```
 
 Routes live inside each context rather than in the central `routes/web.php`, so ask for the files you
 need and the provider will declare them for you:
 
 ```bash
-./vendor/bin/sail artisan ldd:make:bounded-context Billing --web --api
+./vendor/bin/sail artisan ldd:make:bounded-context Billing bil --web --api
 ```
 
 No layer directories are created. A context earns its `Domain`, `Application` and `Infrastructure`
@@ -362,8 +362,8 @@ app
             └── Persistence
                 ├── EloquentUserRepository.php
                 ├── Migrations
-                │   ├── 0000_00_00_000001_create_users_table.php
-                │   └── 2024_12_04_123046_add_two_factor_columns_to_users_table.php
+                │   ├── 0000_00_00_000001_create_iaa_users_table.php
+                │   └── 2024_12_04_123046_add_two_factor_columns_to_iaa_users_table.php
                 └── Seeders
                     └── UserSeeder.php
 ```

@@ -14,6 +14,9 @@ use ComplexHeart\Infrastructure\Laravel\BoundedContextServiceProvider;
  */
 class {{ context }}ServiceProvider extends BoundedContextServiceProvider
 {
+    /** The code every table this context owns starts with: {{ prefix }}_<table>. */
+    public string $tablePrefix = '{{ prefix }}';
+
     /** @var array<class-string, class-string> */
     public array $bindings = [];
 

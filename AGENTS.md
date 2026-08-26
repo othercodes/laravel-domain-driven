@@ -1,6 +1,6 @@
 # Laravel Domain-Driven
 
-A Laravel application arranged into bounded contexts, aggregates and layers. Five
+A Laravel application arranged into bounded contexts, aggregates and layers. Six
 things below are not true of an ordinary Laravel application, and each one is a
 mistake an agent makes here on its first try.
 
@@ -8,7 +8,7 @@ mistake an agent makes here on its first try.
 appends a `<laravel-boost-guidelines>` block below, along with an MCP server and
 a searchable Laravel documentation index. That block is generic Laravel advice
 and is regenerated on every run; everything above it is this project's own and
-is left alone. **Where the two disagree, this section wins.** The five points
+is left alone. **Where the two disagree, this section wins.** The six points
 below name the disagreements.
 
 ## Run everything through Sail
@@ -27,7 +27,7 @@ There is no `app/Models`. An aggregate is thirteen files across three layers,
 and one command writes them consistently:
 
 ```bash
-./vendor/bin/sail artisan ldd:make:bounded-context Billing --web
+./vendor/bin/sail artisan ldd:make:bounded-context Billing bil --web
 ./vendor/bin/sail artisan ldd:make:aggregate Billing Invoice --migration --factory --events
 ./vendor/bin/sail artisan ldd:make:use-case Billing Invoice CreateInvoice --publishes
 ./vendor/bin/sail artisan ldd:make:event-handler Billing Invoice NotifyAccounting
@@ -49,6 +49,21 @@ The report says nothing about whether the entry is already there, because the
 command never read the file. Check before pasting. Where an entry has a key,
 `$events` above all, a second entry under the same key replaces the first in
 silence: list both handlers in an array instead.
+
+## Tables carry their context's code
+
+There is no `users` table here, there is `iaa_users`. Every context declares a
+short code on its service provider, `public string $tablePrefix`, and every
+table it owns starts with it: `iaa_`, `shd_`, and whatever a new context picks.
+
+The code is asked for when the context is created, `ldd:make:bounded-context
+Billing bil`, never derived: which abbreviation reads back to a context is a
+judgement. `ldd:make:aggregate` then reads the property and names the table for
+you, so this only matters when you write a migration by hand or point a model
+at a table.
+Both halves have to agree: `Schema::create('trn_exercises')` and
+`protected $table = 'trn_exercises'`. A framework table named in config, a
+queue or a session table, counts too.
 
 ## Dependencies point inwards
 

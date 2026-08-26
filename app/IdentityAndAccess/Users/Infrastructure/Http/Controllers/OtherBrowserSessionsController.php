@@ -47,7 +47,7 @@ class OtherBrowserSessionsController extends Controller
             return;
         }
 
-        DB::connection(config('session.connection'))->table(config('session.table', 'sessions'))
+        DB::connection(config('session.connection'))->table(config('session.table', 'iaa_sessions'))
             ->where('user_id', $request->user()->getAuthIdentifier())
             ->where('id', '!=', $request->session()->getId())
             ->delete();

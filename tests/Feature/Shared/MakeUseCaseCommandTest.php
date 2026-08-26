@@ -21,7 +21,7 @@ beforeEach(function () {
     // suite then refuses at the guard above.
     $this->createdFixture = true;
 
-    $this->artisan('ldd:make:bounded-context', ['name' => 'UseCaseFixture'])->assertSuccessful();
+    $this->artisan('ldd:make:bounded-context', ['name' => 'UseCaseFixture', 'prefix' => 'ucf'])->assertSuccessful();
     $this->artisan('ldd:make:aggregate', ['context' => 'UseCaseFixture', 'name' => 'Widget', '--events' => true])
         ->assertSuccessful();
 });

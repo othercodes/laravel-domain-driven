@@ -16,7 +16,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('api_tokens', function (Blueprint $table) {
+        Schema::create('iaa_api_tokens', function (Blueprint $table) {
             $table->id();
             $table->uuidMorphs('tokenable');
             $table->text('name');
@@ -33,6 +33,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('api_tokens');
+        Schema::dropIfExists('iaa_api_tokens');
     }
 };

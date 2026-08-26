@@ -48,6 +48,8 @@ class User extends Authenticatable implements BuildsFromAttributes, MustVerifyEm
     use Notifiable;
     use TwoFactorAuthenticatable;
 
+    protected $table = 'iaa_users';
+
     /**
      * Creates a new User and registers the UserCreated domain event.
      *
